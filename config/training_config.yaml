@@ -1,0 +1,42 @@
+# Spectral GAN training configuration
+
+structure:
+  N_layers: 20
+  pol: 0
+  thickness_sup: 0.4
+  thickness_bot: 0.25
+
+materials:
+  materials_list:
+    - Ge_Burnett
+    - SiO2
+
+optics:
+  wavelength_range: [3, 8]
+  samples_total: 4000
+  theta: 0.0
+  n_top: 1.0
+  n_bot: 1.0
+  lorentz_width: 0.01
+  lorentz_center_range: [3.5, 7.5]
+  metal_name: "Al (Aluminium) - CRC.mat"
+
+generator:
+  thickness_noise_dim: 1024
+  material_noise_dim: 1024
+  alpha_sup: 4
+  alpha: 200
+
+training:
+  epochs: 300
+  batch_size: 250
+  save_interval: 10
+  noise_level: 0.005
+  lambda_gp: 3.0
+
+optimizer:
+  lr_gen: 0.001
+  lr_disc: 0.0001
+  beta1: 0.9
+  beta2: 0.999
+  weight_decay: 0.0001

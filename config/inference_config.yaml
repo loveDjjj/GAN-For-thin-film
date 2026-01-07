@@ -1,0 +1,13 @@
+# Inference configuration for infer.py
+model_path: results/spectral_gan/run_20250413_163307/models/generator_final.pth
+config_path: config/training_config.yaml
+output_dir: generated_samples
+num_samples: 500
+infer_batch_size: 128
+alpha: 200
+visualize: false
+target_center: 4.26
+target_width: 0.01
+center_region: 0.03
+weight_factor: 10.0
+best_samples: 8
