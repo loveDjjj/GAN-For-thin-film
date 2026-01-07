@@ -61,14 +61,24 @@ def generate_lorentzian_curves(wavelengths, batch_size=None, width=0.05, center=
     wave_min = wavelengths.min().item()
     wave_max = wavelengths.max().item()
 
-    # 在实际波长范围内生成中心，稍微缩小范围确保峰值可见
-    # 根据带宽参数动态调整填充范围，确保整个峰值在可见范围内
-    # 带宽越大，需要的填充越大，以确保峰值完全可见
-    padding = max((wave_max - wave_min) * 0.1, width * 2)  # 使用带宽的2倍或10%范围的较大值
-    centers = torch.FloatTensor(batch_size).uniform_(
-        wave_min + padding,
-        wave_max - padding
-    ).to(device)
+    # 生成中心范围：优先使用center_range，否则回退到可见范围
+    # 默认范围略缩小，避免峰值被截断
+    padding = max((wave_max - wave_min) * 0.1, width * 2)
+    default_min = wave_min + padding
+    default_max = wave_max - padding
+
+    if center_range is not None:
+        if not isinstance(center_range, (list, tuple)) or len(center_range) != 2:
+            raise ValueError("center_range must be a list/tuple with two values [min, max]")
+        center_min, center_max = center_range
+        if center_min == center_max:
+            raise ValueError("center_range min and max must be different")
+        if center_min > center_max:
+            center_min, center_max = center_max, center_min
+    else:
+        center_min, center_max = default_min, default_max
+
+    centers = torch.FloatTensor(batch_size).uniform_(center_min, center_max).to(device)
 
     # 计算每个样本的洛伦兹曲线
     for i in range(batch_size):

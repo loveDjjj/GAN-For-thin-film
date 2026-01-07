@@ -94,6 +94,8 @@ def update_params(params, config):
             params.n_bot = config['optics']['n_bot']
         if 'lorentz_width' in config['optics']:
             params.lorentz_width = config['optics']['lorentz_width']
+        if 'lorentz_center_range' in config['optics']:
+            params.lorentz_center_range = config['optics']['lorentz_center_range']
     
     # 生成器参数
     if 'generator' in config:
