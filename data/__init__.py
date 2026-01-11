@@ -4,4 +4,4 @@
 """
 
 # 导出主要功能以便用户可以直接从data包导入
-from .myindex import MatDatabase, index, Materials_dir, nk 
+from .myindex import MatDatabase, index, Materials_dir

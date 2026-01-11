@@ -89,57 +89,80 @@ def train_gan(config_path, output_dir, device=None, load_parameters=None, setup_
 
         alpha = round(epoch / params.epochs * params.alpha_sup) + 20
 
-        thickness_noise = torch.randn(params.batch_size, params.thickness_noise_dim, device=device)
-        material_noise = torch.randn(params.batch_size, params.material_noise_dim, device=device)
+        d_loss = None
+        g_loss = None
+        d_real = None
+        d_fake = None
+        gradient_penalty = None
 
-        real_absorption = generate_lorentzian_curves(
-            wavelengths, batch_size=params.batch_size, width=params.lorentz_width, center_range=params.lorentz_center_range
-        )
+        for _ in range(max(1, params.d_steps)):
+            thickness_noise = torch.randn(params.batch_size, params.thickness_noise_dim, device=device)
+            material_noise = torch.randn(params.batch_size, params.material_noise_dim, device=device)
 
-        d_optimizer.zero_grad()
+            real_absorption = generate_lorentzian_curves(
+                wavelengths,
+                batch_size=params.batch_size,
+                width=params.lorentz_width,
+                center_range=params.lorentz_center_range,
+            )
 
-        thicknesses, refractive_indices, P = generator(thickness_noise, material_noise, alpha)
+            d_optimizer.zero_grad()
 
-        reflection = calculate_reflection(thicknesses, refractive_indices, params, device)
-        fake_absorption = (1 - reflection).float()
+            thicknesses, refractive_indices, P = generator(thickness_noise, material_noise, alpha)
 
-        real_absorption = real_absorption.float()
+            reflection = calculate_reflection(thicknesses, refractive_indices, params, device)
+            fake_absorption = (1 - reflection).float()
 
-        noisy_real = add_noise(real_absorption, params.noise_level)
-        noisy_fake = add_noise(fake_absorption.detach(), params.noise_level)
+            real_absorption = real_absorption.float()
 
-        d_real = discriminator(noisy_real)
-        d_fake = discriminator(noisy_fake)
+            noisy_real = add_noise(real_absorption, params.noise_level)
+            noisy_fake = add_noise(fake_absorption.detach(), params.noise_level)
 
-        d_loss_real = F.binary_cross_entropy_with_logits(d_real, torch.ones_like(d_real))
-        d_loss_fake = F.binary_cross_entropy_with_logits(d_fake, torch.zeros_like(d_fake))
+            d_real = discriminator(noisy_real)
+            d_fake = discriminator(noisy_fake)
 
-        gradient_penalty = compute_gradient_penalty(
-            discriminator, real_absorption, fake_absorption.detach()
-        )
+            d_loss_real = F.binary_cross_entropy_with_logits(d_real, torch.ones_like(d_real))
+            d_loss_fake = F.binary_cross_entropy_with_logits(d_fake, torch.zeros_like(d_fake))
 
-        d_loss = d_loss_real + d_loss_fake + params.lambda_gp * gradient_penalty
+            gradient_penalty = compute_gradient_penalty(
+                discriminator, real_absorption, fake_absorption.detach()
+            )
 
-        d_loss.backward()
-        d_optimizer.step()
+            d_loss = d_loss_real + d_loss_fake + params.lambda_gp * gradient_penalty
 
-        gp_value = params.lambda_gp * gradient_penalty.item()
-        gp_losses.append(gp_value)
+            d_loss.backward()
+            d_optimizer.step()
 
-        g_optimizer.zero_grad()
+            gp_value = params.lambda_gp * gradient_penalty.item()
+            gp_losses.append(gp_value)
 
-        thicknesses, refractive_indices, P = generator(thickness_noise, material_noise, alpha)
-        reflection = calculate_reflection(thicknesses, refractive_indices, params, device)
-        fake_absorption = (1 - reflection).float()
+        for _ in range(max(1, params.g_steps)):
+            thickness_noise = torch.randn(params.batch_size, params.thickness_noise_dim, device=device)
+            material_noise = torch.randn(params.batch_size, params.material_noise_dim, device=device)
 
-        noisy_fake = add_noise(fake_absorption, params.noise_level)
+            g_optimizer.zero_grad()
 
-        d_fake = discriminator(noisy_fake)
+            thicknesses, refractive_indices, P = generator(thickness_noise, material_noise, alpha)
+            reflection = calculate_reflection(thicknesses, refractive_indices, params, device)
+            fake_absorption = (1 - reflection).float()
 
-        g_loss = F.binary_cross_entropy_with_logits(d_fake, torch.ones_like(d_fake))
+            noisy_fake = add_noise(fake_absorption, params.noise_level)
 
-        g_loss.backward()
-        g_optimizer.step()
+            d_fake = discriminator(noisy_fake)
+
+            g_loss = F.binary_cross_entropy_with_logits(d_fake, torch.ones_like(d_fake))
+
+            g_loss.backward()
+            g_optimizer.step()
+
+        if g_loss is None:
+            g_loss = torch.tensor(0.0)
+        if d_loss is None:
+            d_loss = torch.tensor(0.0)
+        if d_real is None:
+            d_real = torch.zeros(1, device=device)
+        if d_fake is None:
+            d_fake = torch.zeros(1, device=device)
 
         g_losses.append(g_loss.item())
         d_losses.append(d_loss.item())

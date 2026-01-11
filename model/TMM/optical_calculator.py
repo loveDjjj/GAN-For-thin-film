@@ -23,26 +23,20 @@ def calculate_reflection(thicknesses, refractive_indices, params, device):
     Returns:
         reflection: 反射率
     """
-    # 动态加载金属材料数据
+    # 动态加载金属材料数据 (mat 文件波长为 nm, 已在 index 内转换为 µm)
     n_metal = index(params.metal_name)
-    # 获取batch_size和波数
     batch_size = thicknesses.size(0)
     k = params.k.to(device)
-    
-    # 创建空气和铝层折射率
+
     air_refractive = torch.ones((batch_size, 1, len(k)), dtype=torch.complex128, device=device)
     Al_refractive = torch.zeros((batch_size, 1, len(k)), dtype=torch.complex128, device=device)
-    
-    # 计算波长(微米)
-    lam = 1000 * 2 * np.pi / k.cpu().numpy()
-    
-    # 修复：将numpy值正确转换为torch张量
+
+    # 计算波长(µm)，直接用于插值
+    lam_um = 2 * np.pi / k.cpu().numpy()
+
     for i in range(len(k)):
-        # 获取金属的折射率（复数形式）
-        n_value = n_metal(lam[i])
-        # 转换为torch复数张量并移至正确设备
+        n_value = n_metal(lam_um[i])
         n_tensor = torch.tensor(n_value, dtype=torch.complex128, device=device)
-        # 为每个批次赋值
         Al_refractive[:, 0, i] = n_tensor
     
     # 组合所有层的折射率 (空气-材料层-铝-空气)
@@ -68,57 +62,3 @@ def calculate_reflection(thicknesses, refractive_indices, params, device):
     reflection, _ = TMM_solver(thicknesses, refractive_indices, k, params.theta, params.pol)
 
     return reflection
-
-
-def _normalize_structure_entry(entry):
-    """
-    将任意表示形式的单个结构向量转换为统一格式。
-
-    支持以下输入形式:
-    1. 字典，包含键: lamda/lambda/lambda_um, n, k, h 或 layers
-    2. (num_layers, 4) 的可迭代对象，列顺序为 [lamda, n, k, h]
-    """
-    if isinstance(entry, dict):
-        lam_value = entry.get('lamda', entry.get('lambda', entry.get('lambda_um')))
-        if lam_value is None:
-            raise ValueError("结构字典缺少 'lamda'/'lambda'/'lambda_um' 字段")
-        lam_value = float(lam_value)
-        if 'layers' in entry:
-            layers = np.asarray(entry['layers'], dtype=np.float64)
-            if layers.ndim != 2 or layers.shape[1] != 4:
-                raise ValueError("layers 字段必须是 (num_layers, 4) 形状的数组")
-            n_values = layers[:, 1]
-            k_values = layers[:, 2]
-            h_values = layers[:, 3]
-        else:
-            try:
-                n_values = np.asarray(entry['n'], dtype=np.float64)
-                k_values = np.asarray(entry['k'], dtype=np.float64)
-                h_values = np.asarray(entry['h'], dtype=np.float64)
-            except KeyError as exc:
-                raise ValueError("结构字典必须包含 'n', 'k', 'h' 键或 'layers' 键") from exc
-        identifier = entry.get('id')
-    else:
-        layers = np.asarray(entry, dtype=np.float64)
-        if layers.ndim != 2 or layers.shape[1] != 4:
-            raise ValueError("结构数组必须是 (num_layers, 4) 形状且列顺序为 [lamda, n, k, h]")
-        lam_column = layers[:, 0]
-        lam_value = float(lam_column[0])
-        if not np.allclose(lam_column, lam_value, atol=1e-9):
-            raise ValueError("同一结构内部的所有层必须使用相同的波长值")
-        n_values = layers[:, 1]
-        k_values = layers[:, 2]
-        h_values = layers[:, 3]
-        identifier = None
-
-    if not (n_values.size == k_values.size == h_values.size):
-        raise ValueError("n, k, h 数据长度必须一致")
-
-    return {
-        'id': identifier,
-        'lambda_um': lam_value,
-        'n': n_values,
-        'k': k_values,
-        'h': h_values
-    }
-

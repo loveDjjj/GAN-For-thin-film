@@ -116,6 +116,10 @@ def update_params(params, config):
             params.batch_size = config['training']['batch_size']
         if 'save_interval' in config['training']:
             params.save_interval = config['training']['save_interval']
+        if 'd_steps' in config['training']:
+            params.d_steps = config['training']['d_steps']
+        if 'g_steps' in config['training']:
+            params.g_steps = config['training']['g_steps']
     
     # 优化器参数
     if 'optimizer' in config:

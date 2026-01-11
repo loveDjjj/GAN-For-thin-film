@@ -1,99 +1,69 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-材料数据库模块
-包含材料折射率数据加载和处理功能
-"""
+"""材料折射率数据库，统一从 data/Materials 下的 .mat 文件读取。
+处理流程：读取 nm 波长数据 -> 转换为 µm -> 插值或组装 n/k."""
 import os
-import sys
 import numpy as np
-import pandas as pd
 import h5py
 import torch
 from scipy.interpolate import interp1d
 import matplotlib.pyplot as plt
 
-# 材料索引函数(来自原始myindex.py)
+
+MATERIALS_DIR = os.path.join(os.path.dirname(__file__), 'Materials')
+
+
+def _resolve_mat_path(varname):
+    """Resolve a material name to an actual .mat path under MATERIALS_DIR."""
+    candidates = []
+    if varname.lower().endswith('.mat'):
+        candidates.append(varname)
+    else:
+        candidates.append(f"{varname}.mat")
+    candidates.extend(os.listdir(MATERIALS_DIR))
+
+    target_lower = varname.lower()
+    for candidate in candidates:
+        path = os.path.join(MATERIALS_DIR, candidate)
+        if not os.path.isfile(path):
+            continue
+        if candidate.lower() == target_lower or candidate.lower().startswith(target_lower) or target_lower in candidate.lower():
+            return path
+    raise FileNotFoundError(f"未找到材料文件: {varname} (目录: {MATERIALS_DIR})")
+
+
+def _load_mat(varname):
+    """Load a .mat file, convert wavelength nm->um, and return wavelength + complex n."""
+    path = _resolve_mat_path(varname)
+    with h5py.File(path, 'r') as dataset:
+        # 取首个数据集作为材料数据
+        name = next(iter(dataset.items()))[0]
+        array = dataset[name][:]
+
+    # 输入格式: [wavelength(nm), n, k]
+    wavelength_nm = array.T[:, 0]
+    wavelength_um = wavelength_nm / 1000.0
+    n_complex = array.T[:, 1] + 1j * array.T[:, 2]
+    return wavelength_um, n_complex
+
+
+# 材料索引函数 (mat 数据 -> µm 插值)
 def index(varname):
     """
-    加载指定材料的折射率数据文件
-    
-    Args:
-        varname: 材料文件名称(.mat格式)
-    
-    Returns:
-        材料折射率的插值函数
+    加载指定材料的折射率数据文件并返回插值函数（输入/输出均以 µm 为单位的波长）
     """
-    database_path = os.path.join(os.path.dirname(__file__), 'Materials')
-    
-    dataset = h5py.File(os.path.join(database_path, varname))
-    
-    variables = dataset.items()
-    for var in variables:
-        name = var[0]
-    
-    array = dataset[name][:]
-    
-    n = np.zeros((np.shape(array)[1], 2), dtype=complex)
-    # 输入折射率应该遵循格式 - 波长/nm n k
-    
-    n[:, 0] = array.T[:, 0]
-    n[:, 1] = array.T[:, 1] + 1j * array.T[:, 2]
-    
-    n_interp = interp1d(n[:, 0].real, n[:, 1], kind='quadratic')
-    
+    wavelength_um, n_complex = _load_mat(varname)
+    n_interp = interp1d(
+        wavelength_um.real,
+        n_complex,
+        kind='quadratic',
+        bounds_error=False,
+        fill_value="extrapolate",
+    )
     return n_interp
 
-def Materials_dir():
-    """
-    获取材料目录列表
-    
-    Returns:
-        可用材料列表
-    """
-    database_path = os.path.join(os.path.dirname(__file__), 'Materials')
-    
-    Materials_list = os.listdir(database_path)
-    
-    return Materials_list
-
-def nk(varname):
-    """
-    显示材料的折射率数据并绘图
-    
-    Args:
-        varname: 材料文件名称(.mat格式)
-    
-    Returns:
-        材料的折射率数据数组
-    """
-    database_path = os.path.join(os.path.dirname(__file__), 'Materials')
-    
-    dataset = h5py.File(os.path.join(database_path, varname))
-    
-    print(dataset)
-    
-    variables = dataset.items()
-    
-    for var in variables:
-        name = var[0]
-        print("Name ", name)
-    
-    array = dataset[name][:]
-    plt.plot(array.T[:, 0], array.T[:, 1], 'Purple', array.T[:, 0], array.T[:, 2], 'Blue')
-    plt.xlabel('Wavelength (nm)')
-    plt.ylabel('Refractive index')
-    plt.legend(['n', 'k'])
-    plt.title(varname)
-    
-    return array
-
-# 材料数据库类(来自原始material_database.py)
 class MatDatabase(object):
-    """材料数据库类
-    参数: 
-        material_key: 材料名称列表
-    """
+    """材料数据库类，基于 data/Materials 下的 .mat 数据（nm->µm 已转换）"""
     def __init__(self, material_key):
         super(MatDatabase, self).__init__()
         self.material_key = material_key
@@ -101,59 +71,46 @@ class MatDatabase(object):
         self.mat_database = self.build_database()
 
     def build_database(self):
-        """
-        构建材料数据库
-        
-        Returns:
-            包含材料折射率数据的字典
-        """
+        """构建材料数据库: {name: (wv_um, n_real, k_imag)}"""
         mat_database = {}
-        
-        # 读取每种材料的色散数据
-        for i in range(self.num_materials):
-            file_name = os.path.join(os.path.dirname(__file__), 'material_data', f'mat_{self.material_key[i]}.xlsx')
-            
-            try: 
-                A = np.array(pd.read_excel(file_name))
-                mat_database[self.material_key[i]] = (A[:, 0], A[:, 1], A[:, 2])
+        for key in self.material_key:
+            try:
+                wv_um, n_complex = _load_mat(key)
+                mat_database[key] = (wv_um, n_complex.real, n_complex.imag)
             except Exception as e:
-                print(f'加载材料 {self.material_key[i]} 时出错: {e}')
-
+                print(f'加载材料 {key} 时出错: {e}')
         return mat_database
 
     def interp_wv(self, wv_in, material_key, ignoreloss=False):
         """
-        在指定波长处插值材料折射率数据
-        
+        在指定波长(µm)处插值材料折射率数据
         Args:
-            wv_in (tensor): 波长数组
+            wv_in (tensor/array): 波长数组（µm）
             material_key (list): 材料名称列表
             ignoreloss (bool): 是否忽略损耗(虚部)
-            
         Returns:
             材料折射率张量: 材料数 x 波长数
         """
-        # 确保wv_in在CPU上
         if hasattr(wv_in, 'device') and wv_in.device.type != 'cpu':
             wv_in_cpu = wv_in.cpu()
         else:
             wv_in_cpu = wv_in
-            
-        # 转换为NumPy数组以便使用np.interp
+
         if hasattr(wv_in_cpu, 'numpy'):
             wv_in_np = wv_in_cpu.numpy()
         else:
             wv_in_np = wv_in_cpu
-            
+
         n_data = np.zeros((len(material_key), wv_in_np.size))
         k_data = np.zeros((len(material_key), wv_in_np.size))
-        
+
         for i in range(len(material_key)):
             mat = self.mat_database[material_key[i]]
-            n_data[i, :] = np.interp(wv_in_np, mat[0], mat[1])
-            k_data[i, :] = np.interp(wv_in_np, mat[0], mat[2])
+            wv_um, n_real, k_imag = mat
+            n_data[i, :] = np.interp(wv_in_np, wv_um, n_real)
+            k_data[i, :] = np.interp(wv_in_np, wv_um, k_imag)
 
         if ignoreloss:
             return torch.tensor(n_data)
         else:
-            return torch.tensor(n_data), torch.tensor(k_data) 
+            return torch.tensor(n_data), torch.tensor(k_data)

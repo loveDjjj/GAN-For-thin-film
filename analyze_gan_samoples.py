@@ -58,7 +58,6 @@ def parse_args():
     return parser.parse_args()
 
 def load_parameters(config_path, device):
-    """???????????"""
     if not os.path.exists(config_path):
         raise FileNotFoundError(f"Configuration file {config_path} not found")
 

@@ -87,6 +87,8 @@ def load_parameters(config_path, device):
     params.save_interval = training["save_interval"]
     params.noise_level = training["noise_level"]
     params.lambda_gp = training["lambda_gp"]
+    params.d_steps = training.get("d_steps", 1)
+    params.g_steps = training.get("g_steps", 1)
 
     optimizer = require(("optimizer",))
     params.lr_gen = optimizer["lr_gen"]
