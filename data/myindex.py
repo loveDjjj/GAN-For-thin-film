@@ -6,6 +6,7 @@ import os
 import numpy as np
 import h5py
 import torch
+from scipy import io as sio
 from scipy.interpolate import interp1d
 import matplotlib.pyplot as plt
 
@@ -13,38 +14,91 @@ import matplotlib.pyplot as plt
 MATERIALS_DIR = os.path.join(os.path.dirname(__file__), 'Materials')
 
 
-def _resolve_mat_path(varname):
-    """Resolve a material name to an actual .mat path under MATERIALS_DIR."""
-    candidates = []
-    if varname.lower().endswith('.mat'):
-        candidates.append(varname)
-    else:
-        candidates.append(f"{varname}.mat")
-    candidates.extend(os.listdir(MATERIALS_DIR))
-
+def _resolve_mat_paths(varname):
+    """Return an ordered list of candidate .mat paths under MATERIALS_DIR."""
     target_lower = varname.lower()
-    for candidate in candidates:
-        path = os.path.join(MATERIALS_DIR, candidate)
-        if not os.path.isfile(path):
-            continue
-        if candidate.lower() == target_lower or candidate.lower().startswith(target_lower) or target_lower in candidate.lower():
-            return path
-    raise FileNotFoundError(f"未找到材料文件: {varname} (目录: {MATERIALS_DIR})")
+
+    exact_candidates = [varname]
+    if not target_lower.endswith('.mat'):
+        exact_candidates.append(f"{varname}.mat")
+
+    files = sorted([f for f in os.listdir(MATERIALS_DIR) if os.path.isfile(os.path.join(MATERIALS_DIR, f))])
+
+    ordered = []
+
+    # 精确匹配
+    for cand in exact_candidates:
+        for f in files:
+            if f.lower() == cand.lower():
+                ordered.append(os.path.join(MATERIALS_DIR, f))
+
+    # 前缀匹配
+    for f in files:
+        if f.lower().startswith(target_lower):
+            ordered.append(os.path.join(MATERIALS_DIR, f))
+
+    # 子串匹配
+    for f in files:
+        if target_lower in f.lower():
+            ordered.append(os.path.join(MATERIALS_DIR, f))
+
+    # 去重同时保留顺序
+    seen = set()
+    unique_ordered = []
+    for p in ordered:
+        if p not in seen:
+            unique_ordered.append(p)
+            seen.add(p)
+
+    if not unique_ordered:
+        raise FileNotFoundError(f"未找到材料文件: {varname} (目录: {MATERIALS_DIR})")
+    return unique_ordered
 
 
 def _load_mat(varname):
     """Load a .mat file, convert wavelength nm->um, and return wavelength + complex n."""
-    path = _resolve_mat_path(varname)
-    with h5py.File(path, 'r') as dataset:
-        # 取首个数据集作为材料数据
-        name = next(iter(dataset.items()))[0]
-        array = dataset[name][:]
+    candidate_paths = _resolve_mat_paths(varname)
 
-    # 输入格式: [wavelength(nm), n, k]
-    wavelength_nm = array.T[:, 0]
-    wavelength_um = wavelength_nm / 1000.0
-    n_complex = array.T[:, 1] + 1j * array.T[:, 2]
-    return wavelength_um, n_complex
+    def _from_array(array):
+        # 接受形状 (N,3) 或 (3,N)
+        arr = np.array(array)
+        if arr.ndim != 2:
+            raise ValueError(f"材料文件 {path} 中的数据不是二维数组，shape={arr.shape}")
+        if arr.shape[1] == 3:
+            arr3 = arr
+        elif arr.shape[0] == 3:
+            arr3 = arr.T
+        else:
+            raise ValueError(f"材料文件 {path} 中的数据无法解析，shape={arr.shape}")
+        wavelength_nm = arr3[:, 0]
+        wavelength_um = wavelength_nm / 1000.0
+        n_complex = arr3[:, 1] + 1j * arr3[:, 2]
+        return wavelength_um, n_complex
+
+    errors = []
+    for path in candidate_paths:
+        # 优先使用 HDF5 读取
+        try:
+            with h5py.File(path, 'r') as dataset:
+                name = next(iter(dataset.items()))[0]
+                array = dataset[name][:]
+            return _from_array(array.T if array.shape[0] == 3 else array)
+        except Exception as e_h5:
+            errors.append(f"HDF5读取失败({path}): {e_h5}")
+
+        # 尝试使用 scipy.io 读取 (Matlab v5/v6)
+        try:
+            mat = sio.loadmat(path)
+            for key, value in mat.items():
+                if key.startswith('__'):
+                    continue
+                if isinstance(value, np.ndarray) and value.size > 0:
+                    return _from_array(value)
+            errors.append(f"未找到有效数组({path})")
+        except Exception as e_mat:
+            errors.append(f"scipy读取失败({path}): {e_mat}")
+
+    raise RuntimeError("读取材料文件失败: " + "; ".join(errors))
 
 
 # 材料索引函数 (mat 数据 -> µm 插值)
@@ -105,6 +159,8 @@ class MatDatabase(object):
         k_data = np.zeros((len(material_key), wv_in_np.size))
 
         for i in range(len(material_key)):
+            if material_key[i] not in self.mat_database:
+                raise KeyError(f"材料 {material_key[i]} 未成功加载，无法插值。检查文件是否存在且格式正确。")
             mat = self.mat_database[material_key[i]]
             wv_um, n_real, k_imag = mat
             n_data[i, :] = np.interp(wv_in_np, wv_um, n_real)
