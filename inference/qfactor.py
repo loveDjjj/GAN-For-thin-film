@@ -105,8 +105,7 @@ def save_q_report(path, q_results, title="Q Report"):
             f.write(f"Sample {i} (Original Index: {res.get('index', 'N/A')})\n")
             f.write(f"Q: {res['q']:.4f}\n")
             f.write(f"Peak Wavelength: {res.get('peak_wavelength')}\n")
-            f.write(f"Peak Absorption: {res.get('peak_absorption')}\n")
-            f.write(f"Left Half-Max: {res.get('left_wavelength')}\n")
-            f.write(f"Right Half-Max: {res.get('right_wavelength')}\n")
-            f.write("-" * 40 + "\n")
-*** End Patch
+        f.write(f"Peak Absorption: {res.get('peak_absorption')}\n")
+        f.write(f"Left Half-Max: {res.get('left_wavelength')}\n")
+        f.write(f"Right Half-Max: {res.get('right_wavelength')}\n")
+        f.write("-" * 40 + "\n")
