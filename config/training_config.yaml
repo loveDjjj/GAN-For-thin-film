@@ -13,11 +13,11 @@ materials:
 
 optics:
   wavelength_range: [3, 6]
-  samples_total: 2000
+  samples_total: 3000
   theta: 0.0
   n_top: 1.0
   n_bot: 1.0
-  lorentz_width: 0.02
+  lorentz_width: 0.01
   lorentz_center_range: [4, 4.5]
   metal_name: "Au"
 

@@ -2,7 +2,8 @@ import torch
 import numpy as np
 
 from model.TMM.optical_calculator import calculate_reflection
-from inference.results import save_best_results, visualize_best_samples
+from inference import filtering
+from inference import visualization
 
 
 def generate_samples(generator, params, num_samples, alpha, device, batch_size):
@@ -47,35 +48,6 @@ def create_target_lorentzian(wavelengths, center, width):
     return target
 
 
-def calculate_weighted_rmse(absorption, target, wavelengths, center, region_width, weight_factor):
-    """Calculate weighted RMSE between absorption and target Lorentzian."""
-    weights = np.ones_like(wavelengths)
-    central_region = (wavelengths >= center - region_width) & (wavelengths <= center + region_width)
-    weights[central_region] = weight_factor
-
-    weighted_errors = weights * (absorption - target) ** 2
-    rmse = np.sqrt(np.mean(weighted_errors))
-
-    return rmse
-
-
-def select_best_samples(absorption_spectra, wavelengths, target, center, region_width, weight_factor, num_best=4):
-    """Select best samples based on weighted RMSE with target."""
-    rmse_values = []
-
-    for i in range(len(absorption_spectra)):
-        rmse = calculate_weighted_rmse(
-            absorption_spectra[i], target, wavelengths, center, region_width, weight_factor
-        )
-        rmse_values.append(rmse)
-
-    rmse_values = np.array(rmse_values)
-    best_indices = np.argsort(rmse_values)[:num_best]
-    best_rmse = rmse_values[best_indices]
-
-    return best_indices, best_rmse
-
-
 def run_inference(args, load_parameters=None, load_model=None):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
@@ -98,7 +70,7 @@ def run_inference(args, load_parameters=None, load_model=None):
     target = create_target_lorentzian(wavelengths, args.target_center, args.target_width)
 
     print(f"Selecting best {args.best_samples} samples based on weighted RMSE...")
-    best_indices, best_rmse = select_best_samples(
+    best_indices, best_rmse = filtering.select_best_samples(
         absorption_spectra,
         wavelengths,
         target,
@@ -112,7 +84,7 @@ def run_inference(args, load_parameters=None, load_model=None):
     for i, (idx, rmse) in enumerate(zip(best_indices, best_rmse)):
         print(f"  Best Sample {i+1}: Index {idx}, RMSE = {rmse:.6f}")
 
-    save_best_results(
+    visualization.save_best_results(
         args.output_dir,
         wavelengths,
         thicknesses,
@@ -125,7 +97,19 @@ def run_inference(args, load_parameters=None, load_model=None):
     )
 
     if args.visualize:
-        fig = visualize_best_samples(wavelengths, absorption_spectra, best_indices, best_rmse, target)
+        fig = visualization.visualize_best_samples(
+            wavelengths, absorption_spectra, best_indices, best_rmse, target
+        )
         fig.show()
 
     print("Done!")
+    return {
+        "wavelengths": wavelengths,
+        "thicknesses": thicknesses,
+        "refractive_indices": refractive_indices,
+        "probs": P,
+        "absorption_spectra": absorption_spectra,
+        "target": target,
+        "best_indices": best_indices,
+        "best_rmse": best_rmse,
+    }
