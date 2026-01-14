@@ -118,17 +118,79 @@ def plot_pareto_front(weighted_rmse, total_thickness, pareto_indices):
     return fig
 
 
-def save_pareto_results(save_dir, weighted_rmse, total_thickness, pareto_indices):
-    """Save Pareto front data and plot."""
-    os.makedirs(save_dir, exist_ok=True)
+def save_pareto_results(base_dir, weighted_rmse, total_thickness, pareto_indices):
+    """Save Pareto front data and plot in a dedicated folder under base_dir."""
+    pareto_dir = os.path.join(base_dir, 'pareto_front')
+    os.makedirs(pareto_dir, exist_ok=True)
     data = pd.DataFrame({
         'weighted_rmse': weighted_rmse,
         'total_thickness': total_thickness,
     })
     data['is_pareto'] = False
     data.loc[pareto_indices, 'is_pareto'] = True
-    data.to_excel(os.path.join(save_dir, 'pareto_front_data.xlsx'), index=False)
+    data.to_excel(os.path.join(pareto_dir, 'pareto_front_data.xlsx'), index=False)
 
     fig = plot_pareto_front(weighted_rmse, total_thickness, pareto_indices)
-    fig.savefig(os.path.join(save_dir, 'pareto_front.png'), dpi=300)
+    fig.savefig(os.path.join(pareto_dir, 'pareto_front.png'), dpi=300)
     plt.close(fig)
+    return pareto_dir
+
+
+def save_pareto_samples(base_dir, wavelengths, absorption_spectra, thicknesses, P,
+                        pareto_indices, pareto_rmse, target, params):
+    """Save Pareto front samples' spectra and structures, with comparison plot."""
+    pareto_dir = os.path.join(base_dir, 'pareto_front')
+    os.makedirs(pareto_dir, exist_ok=True)
+
+    # 保存每个帕累托样本的光谱和结构
+    for i, idx in enumerate(pareto_indices):
+        absorption_data = pd.DataFrame()
+        absorption_data['Wavelength (μm)'] = wavelengths
+        absorption_data['Absorption'] = absorption_spectra[idx]
+        absorption_data['Target Lorentzian'] = target
+
+        excel_path = os.path.join(pareto_dir, f'pareto_sample_{i+1}_absorption.xlsx')
+        absorption_data.to_excel(excel_path, index=False)
+
+        structure_path = os.path.join(pareto_dir, f'pareto_sample_{i+1}_structure.txt')
+        with open(structure_path, 'w') as f:
+            f.write(f"Pareto Sample {i+1} (Original Index: {idx})\n")
+            f.write(f"Weighted RMSE: {pareto_rmse[i]:.6f}\n")
+            f.write("=" * 60 + "\n\n")
+
+            f.write("Layer Thickness (μm):\n")
+            thickness_values = thicknesses[idx].cpu().numpy()
+            for j, thickness in enumerate(thickness_values):
+                f.write(f"Layer {j+1}: {thickness:.6f}\n")
+
+            f.write("\n" + "-" * 40 + "\n\n")
+            f.write("Material Probabilities:\n")
+            material_probs = P[idx].cpu().numpy()
+
+            f.write(f"{'Layer':<10}")
+            for mat_idx, mat_name in enumerate(params.materials):
+                f.write(f"{mat_name:<15}")
+            f.write("\n")
+
+            for j, layer_probs in enumerate(material_probs):
+                f.write(f"{j+1:<10}")
+                for prob in layer_probs:
+                    f.write(f"{prob:.6f}{'':<8}")
+                f.write("\n")
+
+            f.write("\n" + "-" * 40 + "\n\n")
+            f.write("Dominant Material for Each Layer:\n")
+            for j, layer_probs in enumerate(material_probs):
+                dominant_idx = int(np.argmax(layer_probs))
+                dominant_prob = layer_probs[dominant_idx]
+                dominant_material = params.materials[dominant_idx]
+                f.write(
+                    f"Layer {j+1}: {dominant_material} "
+                    f"(Probability: {dominant_prob:.6f})\n"
+                )
+
+    # 统一绘制帕累托样本光谱
+    fig = visualize_best_samples(wavelengths, absorption_spectra, pareto_indices, pareto_rmse, target)
+    fig.savefig(os.path.join(pareto_dir, 'pareto_samples_comparison.png'), dpi=300)
+    plt.close(fig)
+    return pareto_dir

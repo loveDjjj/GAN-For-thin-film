@@ -107,7 +107,11 @@ def run_inference(args, load_parameters=None, load_model=None):
     )
     total_thickness = filtering.compute_total_thickness(thicknesses)
     pareto_indices = filtering.calculate_pareto_front(weighted_rmse_all, total_thickness)
-    visualization.save_pareto_results(save_dir, weighted_rmse_all, total_thickness, pareto_indices)
+    pareto_dir = visualization.save_pareto_results(save_dir, weighted_rmse_all, total_thickness, pareto_indices)
+    pareto_rmse = weighted_rmse_all[pareto_indices]
+    visualization.save_pareto_samples(
+        save_dir, wavelengths, absorption_spectra, thicknesses, P, pareto_indices, pareto_rmse, target, params
+    )
 
     if args.visualize:
         fig = visualization.visualize_best_samples(
