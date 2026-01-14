@@ -84,7 +84,7 @@ def run_inference(args, load_parameters=None, load_model=None):
     for i, (idx, rmse) in enumerate(zip(best_indices, best_rmse)):
         print(f"  Best Sample {i+1}: Index {idx}, RMSE = {rmse:.6f}")
 
-    visualization.save_best_results(
+    save_dir = visualization.save_best_results(
         args.output_dir,
         wavelengths,
         thicknesses,
@@ -96,11 +96,26 @@ def run_inference(args, load_parameters=None, load_model=None):
         params,
     )
 
+    # 计算并保存帕累托前沿信息
+    weighted_rmse_all = filtering.compute_weighted_rmse_all(
+        absorption_spectra,
+        wavelengths,
+        target,
+        args.target_center,
+        args.center_region,
+        args.weight_factor,
+    )
+    total_thickness = filtering.compute_total_thickness(thicknesses)
+    pareto_indices = filtering.calculate_pareto_front(weighted_rmse_all, total_thickness)
+    visualization.save_pareto_results(save_dir, weighted_rmse_all, total_thickness, pareto_indices)
+
     if args.visualize:
         fig = visualization.visualize_best_samples(
             wavelengths, absorption_spectra, best_indices, best_rmse, target
         )
         fig.show()
+        pareto_fig = visualization.plot_pareto_front(weighted_rmse_all, total_thickness, pareto_indices)
+        pareto_fig.show()
 
     print("Done!")
     return {
@@ -112,4 +127,7 @@ def run_inference(args, load_parameters=None, load_model=None):
         "target": target,
         "best_indices": best_indices,
         "best_rmse": best_rmse,
+        "weighted_rmse_all": weighted_rmse_all,
+        "total_thickness": total_thickness,
+        "pareto_indices": pareto_indices,
     }

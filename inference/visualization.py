@@ -4,6 +4,7 @@ from datetime import datetime
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import numpy as np
 
 
 def visualize_best_samples(wavelengths, absorption_spectra, best_indices, best_rmse, target):
@@ -97,3 +98,37 @@ def save_best_results(output_dir, wavelengths, thicknesses, P, absorption_spectr
 
     print(f"Best samples saved to {save_dir}")
     return save_dir
+
+
+def plot_pareto_front(weighted_rmse, total_thickness, pareto_indices):
+    """Plot Pareto front for (RMSE, total_thickness)."""
+    fig, ax = plt.subplots(figsize=(6, 5))
+    ax.scatter(weighted_rmse, total_thickness, s=10, c='gray', alpha=0.6, label='Samples')
+
+    pareto_rmse = weighted_rmse[pareto_indices]
+    pareto_thick = total_thickness[pareto_indices]
+    ax.scatter(pareto_rmse, pareto_thick, c='red', s=20, label='Pareto Front')
+
+    ax.set_xlabel('Weighted RMSE')
+    ax.set_ylabel('Total Thickness (μm)')
+    ax.set_title('Pareto Front (RMSE vs Total Thickness)')
+    ax.legend()
+    ax.grid(True, linestyle='--', alpha=0.4)
+    plt.tight_layout()
+    return fig
+
+
+def save_pareto_results(save_dir, weighted_rmse, total_thickness, pareto_indices):
+    """Save Pareto front data and plot."""
+    os.makedirs(save_dir, exist_ok=True)
+    data = pd.DataFrame({
+        'weighted_rmse': weighted_rmse,
+        'total_thickness': total_thickness,
+    })
+    data['is_pareto'] = False
+    data.loc[pareto_indices, 'is_pareto'] = True
+    data.to_excel(os.path.join(save_dir, 'pareto_front_data.xlsx'), index=False)
+
+    fig = plot_pareto_front(weighted_rmse, total_thickness, pareto_indices)
+    fig.savefig(os.path.join(save_dir, 'pareto_front.png'), dpi=300)
+    plt.close(fig)

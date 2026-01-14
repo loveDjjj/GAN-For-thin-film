@@ -29,6 +29,17 @@ def select_best_samples(absorption_spectra, wavelengths, target, center, region_
     return best_indices, best_rmse
 
 
+def compute_weighted_rmse_all(absorption_spectra, wavelengths, target, center, region_width, weight_factor):
+    """Compute weighted RMSE for all samples."""
+    rmse_values = []
+    for i in range(len(absorption_spectra)):
+        rmse = calculate_weighted_rmse(
+            absorption_spectra[i], target, wavelengths, center, region_width, weight_factor
+        )
+        rmse_values.append(rmse)
+    return np.array(rmse_values)
+
+
 def calculate_pareto_front(weighted_rmse, total_thickness):
     """
     Calculate Pareto front indices based on two objectives:
