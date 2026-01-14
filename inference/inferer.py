@@ -1,9 +1,11 @@
+import os
 import torch
 import numpy as np
 
 from model.TMM.optical_calculator import calculate_reflection
 from inference import filtering
 from inference import visualization
+from inference import qfactor
 
 
 def generate_samples(generator, params, num_samples, alpha, device, batch_size):
@@ -113,6 +115,17 @@ def run_inference(args, load_parameters=None, load_model=None):
         save_dir, wavelengths, absorption_spectra, thicknesses, P, pareto_indices, pareto_rmse, target, params
     )
 
+    # 计算 Q 值（最佳样本与帕累托样本）
+    best_q = qfactor.compute_q_for_indices(
+        wavelengths, absorption_spectra, best_indices, args.target_center, args.q_eval_window
+    )
+    qfactor.save_q_report(os.path.join(save_dir, "best_samples_q.txt"), best_q, "Best Samples Q")
+
+    pareto_q = qfactor.compute_q_for_indices(
+        wavelengths, absorption_spectra, pareto_indices, args.target_center, args.q_eval_window
+    )
+    qfactor.save_q_report(os.path.join(pareto_dir, "pareto_samples_q.txt"), pareto_q, "Pareto Samples Q")
+
     if args.visualize:
         fig = visualization.visualize_best_samples(
             wavelengths, absorption_spectra, best_indices, best_rmse, target
@@ -134,4 +147,6 @@ def run_inference(args, load_parameters=None, load_model=None):
         "weighted_rmse_all": weighted_rmse_all,
         "total_thickness": total_thickness,
         "pareto_indices": pareto_indices,
+        "best_q": best_q,
+        "pareto_q": pareto_q,
     }

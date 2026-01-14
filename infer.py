@@ -61,6 +61,8 @@ def parse_args():
                         help='Weight multiplier for central region')
     parser.add_argument('--best_samples', type=int, default=None,
                         help='Number of best samples to save')
+    parser.add_argument('--q_eval_window', type=float, default=None,
+                        help='Half window (μm) around target center to search peak for Q evaluation')
     return parser.parse_args()
 
 

@@ -10,3 +10,4 @@ target_width: 0.01
 center_region: 0.02
 weight_factor: 10.0
 best_samples: 8
+q_eval_window: 0.05
