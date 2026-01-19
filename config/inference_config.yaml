@@ -1,8 +1,8 @@
 model_path: results/spectral_gan/run_20260111_164537/models/generator_final.pth
 config_path: config/training_config.yaml
 output_dir: generated_samples
-num_samples: 100000
-infer_batch_size: 2048
+num_samples: 150000
+infer_batch_size: 1024
 alpha: 200
 visualize: false
 target_center: 4.26

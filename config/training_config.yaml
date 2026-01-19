@@ -1,23 +1,23 @@
 # Spectral GAN training configuration
 
 structure:
-  N_layers: 10
+  N_layers: 16
   pol: 0
-  thickness_sup: 0.5
+  thickness_sup: 0.2
   thickness_bot: 0.05
 
 materials:
   materials_list:
     - Ge
-    - YbF3
+    - SiO2
 
 optics:
-  wavelength_range: [3, 6]
-  samples_total: 3000
+  wavelength_range: [3, 5.5]
+  samples_total: 5000
   theta: 0.0
   n_top: 1.0
   n_bot: 1.0
-  lorentz_width: 0.01
+  lorentz_width: 0.005
   lorentz_center_range: [4, 4.5]
   metal_name: "Au"
 
@@ -29,7 +29,7 @@ generator:
 
 training:
   epochs: 300
-  batch_size: 512
+  batch_size: 256
   save_interval: 10
   noise_level: 0.005
   lambda_gp: 3.0
