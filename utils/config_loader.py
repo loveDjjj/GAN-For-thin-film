@@ -3,6 +3,8 @@ import os
 import json
 import logging
 import yaml
+import torch
+import numpy as np
 
 
 class Params():
@@ -156,4 +158,81 @@ def set_logger(log_path):
         # 日志输出到控制台
         stream_handler = logging.StreamHandler()
         stream_handler.setFormatter(logging.Formatter('%(message)s'))
-        logger.addHandler(stream_handler) 
+        logger.addHandler(stream_handler)
+
+
+def generate_wavelength_samples(config):
+    """根据配置生成波长采样点
+
+    支持两种采样模式：
+    1. uniform: 均匀采样
+    2. segmented: 分段采样（边缘稀疏 + 中心密集）
+
+    Args:
+        config: 包含 optics 配置的字典
+
+    Returns:
+        wavelengths: 波长张量 (torch.Tensor)
+        k: 波数张量 (torch.Tensor)
+    """
+    optics = config.get('optics', {})
+    sampling_mode = optics.get('sampling_mode', 'uniform')
+
+    if sampling_mode == 'segmented':
+        # 分段采样模式
+        segments = optics.get('segments', {})
+
+        if not segments:
+            raise ValueError("分段采样模式需要配置 'segments' 参数")
+
+        wavelength_list = []
+
+        # 按顺序处理各段：left, center, right
+        for seg_name in ['left', 'center', 'right']:
+            if seg_name not in segments:
+                continue
+            seg = segments[seg_name]
+            seg_range = seg.get('range', [])
+            seg_samples = seg.get('samples', 0)
+
+            if len(seg_range) != 2 or seg_samples <= 0:
+                raise ValueError(f"分段 '{seg_name}' 配置无效: range={seg_range}, samples={seg_samples}")
+
+            # 生成该段的波长采样点
+            # 注意：为避免边界重复，除第一段外都排除起始点
+            if seg_name == 'left':
+                seg_wavelengths = torch.linspace(seg_range[0], seg_range[1], seg_samples)
+            else:
+                # 排除起始点，避免与前一段的终点重复
+                seg_wavelengths = torch.linspace(seg_range[0], seg_range[1], seg_samples + 1)[1:]
+
+            wavelength_list.append(seg_wavelengths)
+
+        wavelengths = torch.cat(wavelength_list)
+
+        # 打印采样信息
+        total_samples = len(wavelengths)
+        print(f"分段采样模式: 总采样点数 = {total_samples}")
+        for seg_name in ['left', 'center', 'right']:
+            if seg_name in segments:
+                seg = segments[seg_name]
+                seg_range = seg['range']
+                seg_samples = seg['samples']
+                density = seg_samples / (seg_range[1] - seg_range[0])
+                print(f"  {seg_name}: {seg_range[0]:.2f}-{seg_range[1]:.2f} μm, "
+                      f"{seg_samples} 点, 密度 = {density:.1f} 点/μm")
+    else:
+        # 均匀采样模式
+        wavelength_range = optics.get('wavelength_range', [3, 5.5])
+        samples_total = optics.get('samples_total', 5000)
+
+        wavelengths = torch.linspace(wavelength_range[0], wavelength_range[1], samples_total)
+
+        density = samples_total / (wavelength_range[1] - wavelength_range[0])
+        print(f"均匀采样模式: {wavelength_range[0]:.2f}-{wavelength_range[1]:.2f} μm, "
+              f"{samples_total} 点, 密度 = {density:.1f} 点/μm")
+
+    # 计算波数 k = 2π/λ
+    k = 2 * np.pi / wavelengths
+
+    return wavelengths, k

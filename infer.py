@@ -9,7 +9,7 @@ import numpy as np
 
 from inference.inferer import run_inference
 from model.net import Generator, Discriminator
-from utils.config_loader import Params, load_config
+from utils.config_loader import Params, load_config, generate_wavelength_samples
 from data.myindex import MatDatabase
 
 
@@ -108,9 +108,9 @@ def load_parameters(config_path, device):
 
     print(f"Configuration loaded from {config_path}")
 
-    params.k = 2 * np.pi / torch.linspace(
-        params.wavelength_range[0], params.wavelength_range[1], params.samples_total
-    )
+    # 使用分段采样或均匀采样生成波长
+    wavelengths, params.k = generate_wavelength_samples(config)
+    params.wavelengths = wavelengths  # 保存波长用于后续使用
 
     params.theta = torch.tensor([params.theta]).to(device)
     params.n_top = torch.tensor([params.n_top])

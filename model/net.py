@@ -158,52 +158,56 @@ class Generator(nn.Module):
 
 
 class Discriminator(nn.Module):
-    """判别器网络：判断吸收率曲线是真实的洛伦兹曲线还是生成的曲线"""
+    """
+    轻量化判别器网络：判断吸收率曲线是真实的洛伦兹曲线还是生成的曲线
+
+    设计原则：
+    - 使用全局平均池化(GAP)替代大型全连接层，大幅减少参数量
+    - 减少卷积通道数，使D容量与G更匹配 (约500K参数 vs G的350K参数)
+    - 适合 n_critic=5 的WGAN-GP训练策略
+    """
     def __init__(self, input_dim):
         super(Discriminator, self).__init__()
-        
+
         # 吸收率曲线的输入维度(波长点数)
         self.input_dim = input_dim
-        
-        # 使用1D卷积捕捉吸收率曲线的特征 - 简化网络结构
+
+        # 轻量化卷积层 - 减少通道数
         self.conv_layers = nn.Sequential(
-            # 第一层卷积
-            nn.Conv1d(1, 32, kernel_size=5, stride=2, padding=2),
+            # 第一层卷积: 1 → 16
+            nn.Conv1d(1, 16, kernel_size=7, stride=2, padding=3),
             nn.LeakyReLU(0.2, inplace=True),
-            
-            # 第二层卷积
+
+            # 第二层卷积: 16 → 32
+            nn.Conv1d(16, 32, kernel_size=5, stride=2, padding=2),
+            nn.BatchNorm1d(32),
+            nn.LeakyReLU(0.2, inplace=True),
+
+            # 第三层卷积: 32 → 64
             nn.Conv1d(32, 64, kernel_size=5, stride=2, padding=2),
             nn.BatchNorm1d(64),
             nn.LeakyReLU(0.2, inplace=True),
-            
-            # 第三层卷积
+
+            # 第四层卷积: 64 → 128
             nn.Conv1d(64, 128, kernel_size=5, stride=2, padding=2),
             nn.BatchNorm1d(128),
             nn.LeakyReLU(0.2, inplace=True),
-            nn.Dropout(0.3),
-            
-            # 第四层卷积
-            nn.Conv1d(128, 256, kernel_size=5, stride=2, padding=2),
-            nn.BatchNorm1d(256),
-            nn.LeakyReLU(0.2, inplace=True),
         )
-        
-        # 计算卷积后的特征维度
-        conv_output_dim = self.calculate_conv_output_dim()
-        
-        # 全连接层 - 简化结构
+
+        # 全局平均池化 - 将任意长度的特征图压缩为固定维度
+        self.global_avg_pool = nn.AdaptiveAvgPool1d(1)
+
+        # 轻量化全连接层
         self.fc_layers = nn.Sequential(
-            nn.Linear(conv_output_dim, 512),
+            nn.Linear(128, 64),
             nn.LeakyReLU(0.2, inplace=True),
             nn.Dropout(0.3),
-            nn.Linear(512, 256),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Linear(256, 1)  # 无sigmoid激活，直接输出线性值
+            nn.Linear(64, 1)  # 无sigmoid激活，直接输出线性值
         )
-        
-        # 更保守的初始化方法
+
+        # 权重初始化
         self._initialize_weights()
-    
+
     def _initialize_weights(self):
         """使用更保守的权重初始化方法"""
         for m in self.modules():
@@ -218,22 +222,7 @@ class Discriminator(nn.Module):
             elif isinstance(m, nn.BatchNorm1d):
                 nn.init.normal_(m.weight.data, 1.0, 0.02)
                 nn.init.constant_(m.bias.data, 0)
-    
-    def calculate_conv_output_dim(self):
-        """计算卷积网络输出的特征维度"""
-        dim = self.input_dim
-        # 每层卷积的输出维度变化: dimension = (dimension - kernel_size + 2*padding) / stride + 1
-        # 第一层卷积后的维度
-        dim = (dim - 5 + 2*2) // 2 + 1
-        # 第二层卷积后的维度
-        dim = (dim - 5 + 2*2) // 2 + 1
-        # 第三层卷积后的维度
-        dim = (dim - 5 + 2*2) // 2 + 1
-        # 第四层卷积后的维度
-        dim = (dim - 5 + 2*2) // 2 + 1
-        # 最终卷积输出的特征数 = 通道数 * 维度
-        return 256 * dim
-    
+
     def forward(self, x):
         """
         前向传播
@@ -244,7 +233,9 @@ class Discriminator(nn.Module):
         x = x.unsqueeze(1)
         # 通过卷积层
         x = self.conv_layers(x)
-        # 展平
+        # 全局平均池化 [batch_size, 128, 1]
+        x = self.global_avg_pool(x)
+        # 展平 [batch_size, 128]
         x = x.view(x.size(0), -1)
         # 通过全连接层 - 无sigmoid，直接返回线性输出
         return self.fc_layers(x)
