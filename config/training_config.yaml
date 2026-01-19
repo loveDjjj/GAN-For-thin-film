@@ -48,8 +48,8 @@ training:
   batch_size: 256
   save_interval: 10
   noise_level: 0.005
-  lambda_gp: 1.0        # BCE Loss 使用较小的梯度惩罚系数
-  n_critic: 1           # D每轮更新次数 (标准BCE GAN: 1)
+  lambda_gp: 10         # WGAN-GP 常用的梯度惩罚系数
+  n_critic: 5           # D每轮更新次数 (WGAN-GP 推荐 5)
 
 optimizer:
   lr_gen: 0.0002
