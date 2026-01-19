@@ -44,16 +44,16 @@ generator:
   alpha: 200
 
 training:
-  epochs: 300
-  batch_size: 256
+  epochs: 2000
+  batch_size: 128
   save_interval: 10
-  noise_level: 0.005
+  noise_level: 0.01     # 略增输入噪声，削弱判别器早期优势
   lambda_gp: 10         # WGAN-GP 常用的梯度惩罚系数
-  n_critic: 5           # D每轮更新次数 (WGAN-GP 推荐 5)
+  n_critic: 3           # D每轮更新次数 (WGAN-GP 推荐 5)
 
 optimizer:
-  lr_gen: 0.0002
-  lr_disc: 0.0001
+  lr_gen: 0.0003
+  lr_disc: 0.00005
   beta1: 0.9
   beta2: 0.999
   weight_decay: 0.0001
