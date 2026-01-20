@@ -164,7 +164,7 @@ class Discriminator(nn.Module):
     设计原则：
     - 使用全局平均池化(GAP)替代大型全连接层，减少参数量
     - 卷积通道数设计使D容量与G接近匹配 (约400K参数 vs G的350K参数)
-    - 适合 WGAN-GP (n_critic=5) 的训练策略
+    - 适合 BCE Loss + n_critic=2 的训练策略
     """
     def __init__(self, input_dim):
         super(Discriminator, self).__init__()
@@ -273,4 +273,5 @@ class SelfAttention(nn.Module):
         out = self.gamma * out + x
         
         return out
+
 

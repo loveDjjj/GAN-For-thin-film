@@ -1,6 +1,7 @@
 import os
 
 import torch
+import torch.nn.functional as F
 import numpy as np
 from tqdm import tqdm
 
@@ -125,13 +126,19 @@ def train_gan(config_path, output_dir, device=None, load_parameters=None, setup_
             d_real = discriminator(noisy_real)
             d_fake = discriminator(noisy_fake)
 
-            # 5) Wasserstein Loss + 梯度惩罚
-            gradient_penalty = compute_gradient_penalty(
-                discriminator, noisy_real, noisy_fake
-            )
-            d_loss = d_fake.mean() - d_real.mean() + params.lambda_gp * gradient_penalty
+            # 5) BCE Loss
+            d_loss_real = F.binary_cross_entropy_with_logits(d_real, torch.ones_like(d_real))
+            d_loss_fake = F.binary_cross_entropy_with_logits(d_fake, torch.zeros_like(d_fake))
 
-            # 6) 反向传播更新 D
+            # 6) 梯度惩罚
+            gradient_penalty = compute_gradient_penalty(
+                discriminator, real_absorption, fake_absorption
+            )
+
+            # 7) 总损失
+            d_loss = d_loss_real + d_loss_fake + params.lambda_gp * gradient_penalty
+
+            # 8) 反向传播更新 D
             d_loss.backward()
             d_optimizer.step()
 
@@ -155,8 +162,8 @@ def train_gan(config_path, output_dir, device=None, load_parameters=None, setup_
         noisy_fake = add_noise(fake_absorption, params.noise_level)
         d_fake_for_g = discriminator(noisy_fake)
 
-        # 4) Generator Loss: 希望 D 评分更高
-        g_loss = -d_fake_for_g.mean()
+        # 4) Generator Loss: 希望 D 把 fake 判断为 real
+        g_loss = F.binary_cross_entropy_with_logits(d_fake_for_g, torch.ones_like(d_fake_for_g))
 
         # 5) 反向传播更新 G
         g_loss.backward()
@@ -173,15 +180,15 @@ def train_gan(config_path, output_dir, device=None, load_parameters=None, setup_
 
         g_losses.append(g_loss.item())
         d_losses.append(d_loss.item())
-        d_real_scores.append(d_real.mean().item())
-        d_fake_scores.append(d_fake.mean().item())
+        d_real_scores.append(torch.sigmoid(d_real.mean()).item())
+        d_fake_scores.append(torch.sigmoid(d_fake.mean()).item())
 
         progress_bar.set_postfix({
             "G_Loss": f"{g_loss.item():.4f}",
             "D_Loss": f"{d_loss.item():.4f}",
             "GP": f"{gp_losses[-1]:.4f}",
-            "D(real)": f"{d_real.mean().item():.2f}",
-            "D(fake)": f"{d_fake.mean().item():.2f}",
+            "D(real)": f"{torch.sigmoid(d_real.mean()).item():.2f}",
+            "D(fake)": f"{torch.sigmoid(d_fake.mean()).item():.2f}",
         })
 
         if (epoch + 1) % params.save_interval == 0:
