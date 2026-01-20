@@ -94,9 +94,48 @@ def train_gan(config_path, output_dir, device=None, load_parameters=None, setup_
         d_real = None
         d_fake = None
         gradient_penalty = None
-        cached_fake_absorption = None  # 缓存G训练时生成的fake_absorption
 
-        # 先执行G训练，缓存最后一次的fake_absorption供D训练复用
+        for _ in range(max(1, params.d_steps)):
+            thickness_noise = torch.randn(params.batch_size, params.thickness_noise_dim, device=device)
+            material_noise = torch.randn(params.batch_size, params.material_noise_dim, device=device)
+
+            real_absorption = generate_lorentzian_curves(
+                wavelengths,
+                batch_size=params.batch_size,
+                width=params.lorentz_width,
+                center_range=params.lorentz_center_range,
+            )
+
+            d_optimizer.zero_grad()
+
+            thicknesses, refractive_indices, P = generator(thickness_noise, material_noise, alpha)
+
+            reflection = calculate_reflection(thicknesses, refractive_indices, params, device)
+            fake_absorption = (1 - reflection).float()
+
+            real_absorption = real_absorption.float()
+
+            noisy_real = add_noise(real_absorption, params.noise_level)
+            noisy_fake = add_noise(fake_absorption.detach(), params.noise_level)
+
+            d_real = discriminator(noisy_real)
+            d_fake = discriminator(noisy_fake)
+
+            d_loss_real = F.binary_cross_entropy_with_logits(d_real, torch.ones_like(d_real))
+            d_loss_fake = F.binary_cross_entropy_with_logits(d_fake, torch.zeros_like(d_fake))
+
+            gradient_penalty = compute_gradient_penalty(
+                discriminator, real_absorption, fake_absorption.detach()
+            )
+
+            d_loss = d_loss_real + d_loss_fake + params.lambda_gp * gradient_penalty
+
+            d_loss.backward()
+            d_optimizer.step()
+
+            gp_value = params.lambda_gp * gradient_penalty.item()
+            gp_losses.append(gp_value)
+
         for _ in range(max(1, params.g_steps)):
             thickness_noise = torch.randn(params.batch_size, params.thickness_noise_dim, device=device)
             material_noise = torch.randn(params.batch_size, params.material_noise_dim, device=device)
@@ -115,46 +154,6 @@ def train_gan(config_path, output_dir, device=None, load_parameters=None, setup_
 
             g_loss.backward()
             g_optimizer.step()
-
-            # 缓存最后一次的fake_absorption（detach以断开计算图）
-            cached_fake_absorption = fake_absorption.detach()
-
-        # D训练：复用G训练时缓存的fake_absorption，避免重复TMM计算
-        for _ in range(max(1, params.d_steps)):
-            real_absorption = generate_lorentzian_curves(
-                wavelengths,
-                batch_size=params.batch_size,
-                width=params.lorentz_width,
-                center_range=params.lorentz_center_range,
-            )
-
-            d_optimizer.zero_grad()
-
-            # 复用缓存的fake_absorption，无需重新计算TMM
-            fake_absorption = cached_fake_absorption
-
-            real_absorption = real_absorption.float()
-
-            noisy_real = add_noise(real_absorption, params.noise_level)
-            noisy_fake = add_noise(fake_absorption, params.noise_level)
-
-            d_real = discriminator(noisy_real)
-            d_fake = discriminator(noisy_fake)
-
-            d_loss_real = F.binary_cross_entropy_with_logits(d_real, torch.ones_like(d_real))
-            d_loss_fake = F.binary_cross_entropy_with_logits(d_fake, torch.zeros_like(d_fake))
-
-            gradient_penalty = compute_gradient_penalty(
-                discriminator, real_absorption, fake_absorption
-            )
-
-            d_loss = d_loss_real + d_loss_fake + params.lambda_gp * gradient_penalty
-
-            d_loss.backward()
-            d_optimizer.step()
-
-            gp_value = params.lambda_gp * gradient_penalty.item()
-            gp_losses.append(gp_value)
 
         if g_loss is None:
             g_loss = torch.tensor(0.0)

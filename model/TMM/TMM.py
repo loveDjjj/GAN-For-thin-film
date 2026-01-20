@@ -167,8 +167,8 @@ def TMM_solver(thicknesses, refractive_indices, k, theta, pol):
                 f"nan数量: {torch.isnan(M_t).sum().item()}, "
                 f"inf数量: {torch.isinf(M_t).sum().item()}"
             )
-
-        # 打印调试信息
+        
+            # 打印调试信息
         print(f"TMM求解器 - M_t形状: {M_t.shape}")
         print(f"TMM求解器 - eta形状: {eta.shape}")
         # 计算反射和透射系数
