@@ -1,9 +1,9 @@
 # Spectral GAN training configuration
 
 structure:
-  N_layers: 10
+  N_layers: 16
   pol: 0
-  thickness_sup: 0.5
+  thickness_sup: 0.2
   thickness_bot: 0.05
 
 materials:
@@ -29,13 +29,13 @@ optics:
   segments:
     left:
       range: [3.0, 3.9]    # 左边缘区域范围 (μm)
-      samples: 250          # 采样点数
+      samples: 500          # 采样点数
     center:
       range: [3.9, 4.6]    # 中心密集区域范围 (μm)，覆盖 lorentz_center_range
-      samples: 2000         # 采样点数（密集采样）
+      samples: 1500         # 采样点数（密集采样）
     right:
       range: [4.6, 5.5]    # 右边缘区域范围 (μm)
-      samples: 250          # 采样点数
+      samples: 500          # 采样点数
 
 generator:
   thickness_noise_dim: 1024
@@ -48,8 +48,8 @@ training:
   batch_size: 256
   save_interval: 10
   noise_level: 0.005
-  lambda_gp: 1.0        # BCE Loss 使用较小的梯度惩罚系数
-  n_critic: 2           # D每轮更新次数 (BCE Loss: 1-2)
+  lambda_gp: 10.0       # WGAN-GP 标准值
+  n_critic: 5           # D每轮更新次数 (WGAN-GP标准: 5)
 
 optimizer:
   lr_gen: 0.001
