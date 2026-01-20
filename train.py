@@ -6,7 +6,7 @@ import torch
 import numpy as np
 
 from train.trainer import train_gan
-from utils.config_loader import Params, load_config, generate_wavelength_samples
+from utils.config_loader import Params, load_config
 from data.myindex import MatDatabase
 
 
@@ -87,7 +87,8 @@ def load_parameters(config_path, device):
     params.save_interval = training["save_interval"]
     params.noise_level = training["noise_level"]
     params.lambda_gp = training["lambda_gp"]
-    params.n_critic = training.get("n_critic", 5)  # D更新次数，WGAN-GP标准为5
+    params.d_steps = training.get("d_steps", 1)
+    params.g_steps = training.get("g_steps", 1)
 
     optimizer = require(("optimizer",))
     params.lr_gen = optimizer["lr_gen"]
@@ -99,9 +100,9 @@ def load_parameters(config_path, device):
     params.user_define = False
     print(f"Configuration loaded from {config_path}")
 
-    # 使用分段采样或均匀采样生成波长
-    wavelengths, params.k = generate_wavelength_samples(config)
-    params.wavelengths = wavelengths  # 保存波长用于后续使用
+    params.k = 2 * np.pi / torch.linspace(
+        params.wavelength_range[0], params.wavelength_range[1], params.samples_total
+    )
 
     params.theta = torch.tensor([params.theta]).to(device)
     params.n_top = torch.tensor([params.n_top])
@@ -121,7 +122,7 @@ def load_parameters(config_path, device):
         f"generator_lr={params.lr_gen}, discriminator_lr={params.lr_disc}, "
         f"weight_decay={params.weight_decay}"
     )
-    print(f"GAN stabilization: noise_level={params.noise_level}, lambda_gp={params.lambda_gp}, n_critic={params.n_critic}")
+    print(f"GAN stabilization: noise_level={params.noise_level}, lambda_gp={params.lambda_gp}")
 
     return params
 

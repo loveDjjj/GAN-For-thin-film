@@ -13,29 +13,13 @@ materials:
 
 optics:
   wavelength_range: [3, 5.5]
-  samples_total: 2500  # 仅用于 sampling_mode: uniform
+  samples_total: 5000
   theta: 0.0
   n_top: 1.0
   n_bot: 1.0
   lorentz_width: 0.005
   lorentz_center_range: [4, 4.5]
   metal_name: "Au"
-
-  # 波长采样模式: "uniform" (均匀采样) 或 "segmented" (分段采样)
-  sampling_mode: "segmented"
-
-  # 分段采样配置 (仅当 sampling_mode: segmented 时生效)
-  # 三段采样：左边缘(稀疏) + 中心区域(密集) + 右边缘(稀疏)
-  segments:
-    left:
-      range: [3.0, 3.9]    # 左边缘区域范围 (μm)
-      samples: 500          # 采样点数
-    center:
-      range: [3.9, 4.6]    # 中心密集区域范围 (μm)，覆盖 lorentz_center_range
-      samples: 1500         # 采样点数（密集采样）
-    right:
-      range: [4.6, 5.5]    # 右边缘区域范围 (μm)
-      samples: 500          # 采样点数
 
 generator:
   thickness_noise_dim: 1024
@@ -48,8 +32,9 @@ training:
   batch_size: 256
   save_interval: 10
   noise_level: 0.005
-  lambda_gp: 10.0       # WGAN-GP 标准值
-  n_critic: 5           # D每轮更新次数 (WGAN-GP标准: 5)
+  lambda_gp: 3.0
+  d_steps: 1
+  g_steps: 2
 
 optimizer:
   lr_gen: 0.001
