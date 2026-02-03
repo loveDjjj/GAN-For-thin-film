@@ -173,7 +173,7 @@ def train_gan(config_path, output_dir, device=None, load_parameters=None, setup_
         discriminator.train()
 
         # alpha 从 alpha_min 线性增长到 alpha_max
-        alpha = round(epoch / params.epochs * (params.alpha_max - params.alpha_min)) + params.alpha_min
+        alpha = params.alpha_min + (params.alpha_max - params.alpha_min) * (epoch / max(params.epochs - 1, 1))
 
         d_loss = None
         g_loss = None
@@ -217,6 +217,7 @@ def train_gan(config_path, output_dir, device=None, load_parameters=None, setup_
             d_loss = d_loss_real + d_loss_fake + params.lambda_gp * gradient_penalty
 
             d_loss.backward()
+            torch.nn.utils.clip_grad_norm_(discriminator.parameters(), 5.0)
             d_optimizer.step()
 
             gp_value = params.lambda_gp * gradient_penalty.item()
@@ -239,6 +240,7 @@ def train_gan(config_path, output_dir, device=None, load_parameters=None, setup_
             g_loss = F.binary_cross_entropy_with_logits(d_fake, torch.ones_like(d_fake))
 
             g_loss.backward()
+            torch.nn.utils.clip_grad_norm_(generator.parameters(), 5.0)
             g_optimizer.step()
 
         if g_loss is None:

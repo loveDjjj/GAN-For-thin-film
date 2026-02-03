@@ -35,6 +35,10 @@ def TMM_solver(thicknesses, refractive_indices, k, theta, pol):
             real_dtype = torch.float32
             eps = 1e-7  # float32的机器精度
 
+        def make_safe(x):
+            """为避免 sign 为 0 时仍出现 0 的情况，对幅值做下界钳制。"""
+            return torch.where(torch.abs(x) < eps, (eps + 0j).type_as(x), x)
+
         # 确保所有输入使用相同的数据类型
         d = thicknesses.to(complex_dtype) * 1e-6  # 转换为米
         n = torch.permute(refractive_indices, (0, 2, 1))  # 调整折射率张量维度
@@ -84,12 +88,7 @@ def TMM_solver(thicknesses, refractive_indices, k, theta, pol):
         else:
             # TM偏振: eta = Y / cos(theta)
             # 添加小量避免除零
-            ct_safe = torch.where(
-                torch.abs(ct) < eps,
-                torch.sign(ct.real) * eps + 1j * ct.imag,
-                ct
-            )
-            eta = Y / ct_safe
+            eta = Y / make_safe(ct)
 
         # 计算相位延迟 delta = k * n * d * cos(theta)
         delta = 1j * g * d * ct
@@ -132,11 +131,7 @@ def TMM_solver(thicknesses, refractive_indices, k, theta, pol):
         M[:,:,:,0,0] = cos_delta
 
         # 对于 1/eta，添加小量避免除零
-        eta_safe = torch.where(
-            torch.abs(eta) < eps,
-            torch.sign(eta.real) * eps + 1j * eta.imag,
-            eta
-        )
+        eta_safe = make_safe(eta)
         M[:,:,:,0,1] = 1j * sin_delta / eta_safe
         M[:,:,:,1,0] = 1j * eta * sin_delta
         M[:,:,:,1,1] = cos_delta
@@ -181,11 +176,7 @@ def TMM_solver(thicknesses, refractive_indices, k, theta, pol):
                      (M_t[:,:,1,0] + M_t[:,:,1,1] * eta_N)
 
         # 添加小量避免除零
-        denominator_safe = torch.where(
-            torch.abs(denominator) < eps,
-            torch.sign(denominator.real) * eps + 1j * denominator.imag,
-            denominator
-        )
+        denominator_safe = make_safe(denominator)
 
         # 计算反射系数 r
         numerator_r = eta_0 * (M_t[:,:,0,0] + M_t[:,:,0,1] * eta_N) - \
@@ -200,11 +191,7 @@ def TMM_solver(thicknesses, refractive_indices, k, theta, pol):
 
         # 计算透射率 T = |t|^2 * Re(eta_N / eta_0)
         # 添加小量避免除零
-        eta_0_safe = torch.where(
-            torch.abs(eta_0) < eps,
-            torch.sign(eta_0.real) * eps + 1j * eta_0.imag,
-            eta_0
-        )
+        eta_0_safe = make_safe(eta_0)
         T = torch.pow(torch.abs(t), 2) * torch.real(eta_N / eta_0_safe)
 
         # 检查输出是否包含nan或inf
