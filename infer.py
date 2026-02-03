@@ -99,12 +99,24 @@ def load_parameters(config_path, device):
     params.n_bot = optics["n_bot"]
     params.lorentz_width = optics["lorentz_width"]
     params.metal_name = optics["metal_name"]
+    if "lorentz_center_range" in optics:
+        params.lorentz_center_range = optics["lorentz_center_range"]
 
     generator = require(("generator",))
     params.thickness_noise_dim = generator["thickness_noise_dim"]
     params.material_noise_dim = generator["material_noise_dim"]
-    params.alpha_sup = generator["alpha_sup"]
-    params.alpha = generator["alpha"]
+    # 向后兼容的alpha参数处理
+    if "alpha_min" in generator:
+        params.alpha_min = generator["alpha_min"]
+    if "alpha_max" in generator:
+        params.alpha_max = generator["alpha_max"]
+    if "alpha_sup" in generator:
+        params.alpha_sup = generator["alpha_sup"]
+    if "alpha" in generator:
+        params.alpha = generator["alpha"]
+    # 如果没有alpha，设置一个默认值（推理时通常会从args传入）
+    if not hasattr(params, 'alpha'):
+        params.alpha = 1.0
 
     print(f"Configuration loaded from {config_path}")
 

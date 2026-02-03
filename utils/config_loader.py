@@ -103,6 +103,11 @@ def update_params(params, config):
             params.thickness_noise_dim = config['generator']['thickness_noise_dim']
         if 'material_noise_dim' in config['generator']:
             params.material_noise_dim = config['generator']['material_noise_dim']
+        if 'alpha_min' in config['generator']:
+            params.alpha_min = config['generator']['alpha_min']
+        if 'alpha_max' in config['generator']:
+            params.alpha_max = config['generator']['alpha_max']
+        # 向后兼容旧配置
         if 'alpha_sup' in config['generator']:
             params.alpha_sup = config['generator']['alpha_sup']
         if 'alpha' in config['generator']:

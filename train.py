@@ -78,8 +78,8 @@ def load_parameters(config_path, device):
     generator = require(("generator",))
     params.thickness_noise_dim = generator["thickness_noise_dim"]
     params.material_noise_dim = generator["material_noise_dim"]
-    params.alpha_sup = generator["alpha_sup"]
-    params.alpha = generator["alpha"]
+    params.alpha_min = generator["alpha_min"]
+    params.alpha_max = generator["alpha_max"]
 
     training = require(("training",))
     params.epochs = training["epochs"]

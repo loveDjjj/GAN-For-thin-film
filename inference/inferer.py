@@ -6,6 +6,7 @@ from model.TMM.optical_calculator import calculate_reflection
 from inference import filtering
 from inference import visualization
 from inference import qfactor
+from utils.visualize import analyze_inference_distribution
 
 
 def generate_samples(generator, params, num_samples, alpha, device, batch_size):
@@ -98,6 +99,19 @@ def run_inference(args, load_parameters=None, load_model=None):
         params,
     )
 
+    # 分析所有生成样本的厚度和层数分布
+    print("Analyzing thickness and merged layers distribution of generated samples...")
+    analyze_inference_distribution(thicknesses, P, save_dir, prefix="all_samples")
+
+    # 分析最佳样本的厚度和层数分布
+    if best_indices.size > 0:
+        print(f"Analyzing distribution of {len(best_indices)} best samples...")
+        best_thicknesses = thicknesses[best_indices]
+        best_P = P[best_indices]
+        analyze_inference_distribution(best_thicknesses, best_P, save_dir, prefix="best_samples")
+    else:
+        print("No best samples to analyze")
+
     # 计算并保存帕累托前沿信息
     weighted_rmse_all = filtering.compute_weighted_rmse_all(
         absorption_spectra,
@@ -114,6 +128,15 @@ def run_inference(args, load_parameters=None, load_model=None):
     visualization.save_pareto_samples(
         save_dir, wavelengths, absorption_spectra, thicknesses, P, pareto_indices, pareto_rmse, target, params
     )
+
+    # 分析帕累托样本的厚度和层数分布
+    if pareto_indices.size > 0:
+        print(f"Analyzing distribution of {len(pareto_indices)} Pareto front samples...")
+        pareto_thicknesses = thicknesses[pareto_indices]
+        pareto_P = P[pareto_indices]
+        analyze_inference_distribution(pareto_thicknesses, pareto_P, pareto_dir, prefix="pareto_samples")
+    else:
+        print("No Pareto front samples to analyze")
 
     # 计算 Q 值（最佳样本与帕累托样本）
     best_q = qfactor.compute_q_for_indices(
