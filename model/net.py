@@ -96,16 +96,22 @@ class Generator(nn.Module):
 
     def forward(self, thickness_noise, material_noise, alpha):
         batch_size = thickness_noise.size(0)
+
+        def _sanitize(x, clamp_val=10.0):
+            x = torch.nan_to_num(x, nan=0.0, posinf=clamp_val, neginf=-clamp_val)
+            return torch.clamp(x, -clamp_val, clamp_val)
         
         # 厚度生成路径
         thickness_features = self.thickness_encoder(thickness_noise)
         thickness_features = self.thickness_res_block(thickness_features)
         thickness_logits = self.thickness_decoder(thickness_features)
+        thickness_logits = _sanitize(thickness_logits)
         
         # 材料选择路径
         material_features = self.material_encoder(material_noise)
         material_features = self.material_res_block(material_features)
         material_logits = self.material_decoder(material_features)
+        material_logits = _sanitize(material_logits)
         material_logits = material_logits.view(batch_size, self.N_layers, self.M_materials)
         
         # 生成厚度和材料选择概率
@@ -126,8 +132,8 @@ class Generator(nn.Module):
             refined = flat_refined.view(batch_size, self.N_layers, 1 + self.M_materials)
             
             # 分离厚度和材料信息
-            thicknesses_refined = refined[:, :, 0]
-            material_probs_refined = refined[:, :, 1:]
+            thicknesses_refined = _sanitize(refined[:, :, 0])
+            material_probs_refined = _sanitize(refined[:, :, 1:])
             
             # 确保材料概率满足条件（归一化）
             material_probs = F.softmax(material_probs_refined * alpha, dim=2)
@@ -137,10 +143,24 @@ class Generator(nn.Module):
             
         # 应用物理约束 - 厚度范围限制
         thicknesses = self.thickness_bot + torch.sigmoid(thicknesses_refined) * (self.thickness_sup - self.thickness_bot)
+        thicknesses = torch.nan_to_num(
+            thicknesses,
+            nan=(self.thickness_bot + self.thickness_sup) / 2.0,
+            posinf=self.thickness_sup,
+            neginf=self.thickness_bot,
+        )
+        thicknesses = torch.clamp(thicknesses, self.thickness_bot, self.thickness_sup)
         
         # 准备材料概率和复折射率计算
+        material_probs = torch.nan_to_num(
+            material_probs,
+            nan=1.0 / max(self.M_materials, 1),
+            posinf=1.0 / max(self.M_materials, 1),
+            neginf=0.0,
+        )
+        material_probs = material_probs / material_probs.sum(dim=2, keepdim=True).clamp_min(1e-6)
         P = material_probs.unsqueeze(-1)  # [batch_size, N_layers, M_materials, 1]
-        
+
         # 计算完整的复折射率 - 根据材料选择概率的加权和
         n_part = torch.sum(P * self.n_database, dim=2)  # 实部 [batch_size, N_layers, wavelengths]
         k_part = torch.sum(P * self.k_database, dim=2)  # 虚部 [batch_size, N_layers, wavelengths]

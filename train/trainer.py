@@ -216,6 +216,10 @@ def train_gan(config_path, output_dir, device=None, load_parameters=None, setup_
 
             d_loss = d_loss_real + d_loss_fake + params.lambda_gp * gradient_penalty
 
+            if not torch.isfinite(d_loss):
+                print("[NaNGuard] d_loss is non-finite; skip this discriminator step")
+                continue
+
             d_loss.backward()
             torch.nn.utils.clip_grad_norm_(discriminator.parameters(), 5.0)
             d_optimizer.step()
@@ -238,6 +242,10 @@ def train_gan(config_path, output_dir, device=None, load_parameters=None, setup_
             d_fake = discriminator(noisy_fake)
 
             g_loss = F.binary_cross_entropy_with_logits(d_fake, torch.ones_like(d_fake))
+
+            if not torch.isfinite(g_loss):
+                print("[NaNGuard] g_loss is non-finite; skip this generator step")
+                continue
 
             g_loss.backward()
             torch.nn.utils.clip_grad_norm_(generator.parameters(), 5.0)
