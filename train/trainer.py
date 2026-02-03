@@ -16,6 +16,21 @@ from train.sample_saver import save_sample, calculate_entropy
 torch.serialization.add_safe_globals([Generator, Discriminator])
 
 
+def configure_numerics():
+    """Stabilize numerics across GPUs (disable TF32, prefer deterministic algorithms)."""
+    torch.backends.cuda.matmul.allow_tf32 = False
+    torch.backends.cudnn.allow_tf32 = False
+    try:
+        torch.set_float32_matmul_precision("highest")
+    except Exception:
+        pass
+    torch.backends.cudnn.benchmark = False
+    try:
+        torch.use_deterministic_algorithms(True, warn_only=True)
+    except TypeError:
+        torch.use_deterministic_algorithms(True)
+
+
 def add_noise(x, noise_level=0.05):
     """Add random noise to tensor."""
     return x + noise_level * torch.randn_like(x)
@@ -124,6 +139,7 @@ def train_gan(config_path, output_dir, device=None, load_parameters=None, setup_
     if device is None:
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+    configure_numerics()
     print(f"Using device: {device}")
 
     if load_parameters is None or setup_directories is None:
