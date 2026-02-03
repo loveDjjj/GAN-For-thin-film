@@ -213,6 +213,9 @@ def train_gan(config_path, output_dir, device=None, load_parameters=None, setup_
             thicknesses, refractive_indices, P_gen = generator(thickness_noise, material_noise, alpha)
 
             reflection = calculate_reflection(thicknesses, refractive_indices, params, device)
+            if not torch.isfinite(reflection).all():
+                print("[NaNGuard] reflection non-finite; skip this discriminator step")
+                continue
             fake_absorption = (1 - reflection).float()
 
             real_absorption = real_absorption.float()
@@ -251,6 +254,9 @@ def train_gan(config_path, output_dir, device=None, load_parameters=None, setup_
 
             thicknesses, refractive_indices, P_g = generator(thickness_noise, material_noise, alpha)
             reflection = calculate_reflection(thicknesses, refractive_indices, params, device)
+            if not torch.isfinite(reflection).all():
+                print("[NaNGuard] reflection non-finite; skip this generator step")
+                continue
             fake_absorption = (1 - reflection).float()
 
             noisy_fake = add_noise(fake_absorption, params.noise_level)
@@ -324,10 +330,11 @@ def train_gan(config_path, output_dir, device=None, load_parameters=None, setup_
                     'mean_merged_layers': mean_merged_layers
                 })
 
+        gp_last = gp_losses[-1] if gp_losses else 0.0
         progress_bar.set_postfix({
             "G_Loss": f"{g_loss.item():.4f}",
             "D_Loss": f"{d_loss.item():.4f}",
-            "GP": f"{gp_losses[-1]:.4f}",
+            "GP": f"{gp_last:.4f}",
             "D(real)": f"{torch.sigmoid(d_real.mean()).item():.2f}",
             "D(fake)": f"{torch.sigmoid(d_fake.mean()).item():.2f}",
             "Thick": f"{mean_thickness:.3f}",

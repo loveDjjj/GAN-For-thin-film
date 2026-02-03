@@ -106,6 +106,7 @@ def TMM_solver(thicknesses, refractive_indices, k, theta, pol):
         # 计算 (n_0 / n_i)^2 * sin^2(theta_0)
         # n[:,:,0] 是入射介质的折射率
         sqrt_arg = 1 - (n[:,:,0:1] / n * sin_theta_squared)
+        log_first_nonfinite("sqrt_arg", sqrt_arg)
 
         # 对于sqrt的参数，如果是负数（全反射情况），取实部为0，虚部保持
         # 这样sqrt会给出纯虚数，表示倏逝波
