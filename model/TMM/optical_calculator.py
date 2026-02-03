@@ -63,6 +63,14 @@ def calculate_reflection(thicknesses, refractive_indices, params, device):
     def _check_finite(name, tensor):
         if not torch.isfinite(tensor).all():
             bad = (~torch.isfinite(tensor)).sum().item()
+            nonfinite = (~torch.isfinite(tensor)).nonzero(as_tuple=False)
+            if nonfinite.numel() > 0:
+                idx0 = nonfinite[0].tolist()
+                try:
+                    val = tensor[tuple(idx0)].item()
+                except Exception:
+                    val = tensor[tuple(idx0)]
+                print(f"[NaNGuard] {name} first non-finite at {idx0} value={val}")
             raise ValueError(f"[NaNGuard] {name} contains {bad} non-finite values")
 
     _check_finite("thicknesses", thicknesses)
