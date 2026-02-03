@@ -37,7 +37,8 @@ def TMM_solver(thicknesses, refractive_indices, k, theta, pol):
 
         def make_safe(x):
             """为避免 sign 为 0 时仍出现 0 的情况，对幅值做下界钳制。"""
-            return torch.where(torch.abs(x) < eps, (eps + 0j).type_as(x), x)
+            eps_tensor = torch.tensor(eps, dtype=x.dtype, device=x.device)
+            return torch.where(torch.abs(x) < eps_tensor, eps_tensor, x)
 
         # 确保所有输入使用相同的数据类型
         d = thicknesses.to(complex_dtype) * 1e-6  # 转换为米
