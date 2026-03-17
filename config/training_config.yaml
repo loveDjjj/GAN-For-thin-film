@@ -42,3 +42,11 @@ optimizer:
   beta1: 0.9
   beta2: 0.999
   weight_decay: 0.0001
+
+visualization:
+  checkpoint_sample_count: 8
+  sample_export_count: 4
+  material_analysis_batch_size: 64
+  thickness_histogram_bins: 20
+  distribution_epoch_interval: 10
+  heatmap_epoch_tick_step: 10

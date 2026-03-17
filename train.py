@@ -97,6 +97,20 @@ def load_parameters(config_path, device):
     params.beta2 = optimizer["beta2"]
     params.weight_decay = optimizer["weight_decay"]
 
+    visualization = config.get("visualization", {})
+    params.checkpoint_sample_count = visualization.get("checkpoint_sample_count", 8)
+    params.sample_export_count = visualization.get("sample_export_count", 4)
+    params.material_analysis_batch_size = visualization.get("material_analysis_batch_size", 64)
+    params.thickness_histogram_bins = visualization.get("thickness_histogram_bins", 20)
+    params.distribution_epoch_interval = visualization.get(
+        "distribution_epoch_interval",
+        max(1, params.epochs // 10),
+    )
+    params.heatmap_epoch_tick_step = visualization.get(
+        "heatmap_epoch_tick_step",
+        params.distribution_epoch_interval,
+    )
+
     params.user_define = False
     print(f"Configuration loaded from {config_path}")
 
@@ -123,6 +137,15 @@ def load_parameters(config_path, device):
         f"weight_decay={params.weight_decay}"
     )
     print(f"GAN stabilization: noise_level={params.noise_level}, lambda_gp={params.lambda_gp}")
+    print(
+        "Visualization parameters: "
+        f"checkpoint_sample_count={params.checkpoint_sample_count}, "
+        f"sample_export_count={params.sample_export_count}, "
+        f"material_analysis_batch_size={params.material_analysis_batch_size}, "
+        f"thickness_histogram_bins={params.thickness_histogram_bins}, "
+        f"distribution_epoch_interval={params.distribution_epoch_interval}, "
+        f"heatmap_epoch_tick_step={params.heatmap_epoch_tick_step}"
+    )
 
     return params
 
