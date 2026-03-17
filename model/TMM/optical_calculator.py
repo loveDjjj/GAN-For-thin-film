@@ -45,8 +45,7 @@ def calculate_reflection(thicknesses, refractive_indices, params, device):
     refractive_indices = torch.cat((refractive_indices, air_refractive), 1)
     
     # 设置层厚度
-    # 为避免 inf 参与三角/指数运算导致数值异常，空气层厚度设为 0
-    air_length = torch.zeros(batch_size, 1, device=device)
+    air_length = torch.ones(batch_size, 1, device=device) * float('inf')
     Al_length = torch.ones(batch_size, 1, device=device) * 0.2  # 铝层厚度0.2微米
     
     # 组合所有层的厚度 (空气-材料层-铝-空气)
@@ -58,23 +57,6 @@ def calculate_reflection(thicknesses, refractive_indices, params, device):
     thicknesses = thicknesses.to(torch.complex128)
     thicknesses = thicknesses.unsqueeze(-1).repeat(1, 1, len(k))
     thicknesses = torch.permute(thicknesses, (0, 2, 1))
-
-    # 数值健壮性检查，尽早暴露 NaN/Inf
-    def _check_finite(name, tensor):
-        if not torch.isfinite(tensor).all():
-            bad = (~torch.isfinite(tensor)).sum().item()
-            nonfinite = (~torch.isfinite(tensor)).nonzero(as_tuple=False)
-            if nonfinite.numel() > 0:
-                idx0 = nonfinite[0].tolist()
-                try:
-                    val = tensor[tuple(idx0)].item()
-                except Exception:
-                    val = tensor[tuple(idx0)]
-                print(f"[NaNGuard] {name} first non-finite at {idx0} value={val}")
-            raise ValueError(f"[NaNGuard] {name} contains {bad} non-finite values")
-
-    _check_finite("thicknesses", thicknesses)
-    _check_finite("refractive_indices", refractive_indices)
     
     # 计算反射率（TMM_solver返回(R, T)元组，我们只需要R）
     reflection, _ = TMM_solver(thicknesses, refractive_indices, k, params.theta, params.pol)

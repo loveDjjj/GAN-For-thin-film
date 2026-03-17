@@ -35,49 +35,9 @@ def TMM_solver(thicknesses, refractive_indices, k, theta, pol):
             real_dtype = torch.float32
             eps = 1e-7  # float32的机器精度
 
-        def make_safe(x):
-            """为避免 sign 为 0 时仍出现 0 的情况，对幅值做下界钳制。"""
-            abs_x = torch.abs(x)
-            eps_real = torch.tensor(eps, dtype=abs_x.dtype, device=x.device)
-            eps_complex = torch.complex(eps_real, torch.zeros_like(eps_real)).to(x.dtype)
-            return torch.where(abs_x < eps_real, eps_complex, x)
-
-        def log_first_nonfinite(name, tensor):
-            if torch.isfinite(tensor).all():
-                return False
-            logged = getattr(TMM_solver, "_nan_trace_logged", None)
-            if logged is None:
-                logged = set()
-                TMM_solver._nan_trace_logged = logged
-            if name in logged:
-                return True
-            logged.add(name)
-            nonfinite = ~torch.isfinite(tensor)
-            idx = nonfinite.nonzero(as_tuple=False)
-            if idx.numel() > 0:
-                idx0 = idx[0].tolist()
-                try:
-                    val = tensor[tuple(idx0)].item()
-                except Exception:
-                    val = tensor[tuple(idx0)]
-                print(f"[NaNTrace] {name} non-finite at {idx0} value={val}")
-            try:
-                abs_t = torch.abs(tensor)
-                finite_abs = abs_t[torch.isfinite(abs_t)]
-                if finite_abs.numel() > 0:
-                    print(
-                        f"[NaNTrace] {name} abs finite min={finite_abs.min().item():.3e}, "
-                        f"max={finite_abs.max().item():.3e}"
-                    )
-            except Exception:
-                pass
-            return True
-
         # 确保所有输入使用相同的数据类型
         d = thicknesses.to(complex_dtype) * 1e-6  # 转换为米
         n = torch.permute(refractive_indices, (0, 2, 1))  # 调整折射率张量维度
-        log_first_nonfinite("d", d)
-        log_first_nonfinite("n", n)
 
         # 计算波长
         l = 2 * math.pi / k  # 波长 (μm)
@@ -106,7 +66,6 @@ def TMM_solver(thicknesses, refractive_indices, k, theta, pol):
         # 计算 (n_0 / n_i)^2 * sin^2(theta_0)
         # n[:,:,0] 是入射介质的折射率
         sqrt_arg = 1 - (n[:,:,0:1] / n * sin_theta_squared)
-        log_first_nonfinite("sqrt_arg", sqrt_arg)
 
         # 对于sqrt的参数，如果是负数（全反射情况），取实部为0，虚部保持
         # 这样sqrt会给出纯虚数，表示倏逝波
@@ -117,7 +76,6 @@ def TMM_solver(thicknesses, refractive_indices, k, theta, pol):
         )
 
         ct = torch.sqrt(sqrt_arg_safe)  # cos(theta) in each layer
-        log_first_nonfinite("ct", ct)
 
         # 计算倾斜导纳 eta
         if pol == 0:
@@ -126,12 +84,15 @@ def TMM_solver(thicknesses, refractive_indices, k, theta, pol):
         else:
             # TM偏振: eta = Y / cos(theta)
             # 添加小量避免除零
-            eta = Y / make_safe(ct)
-        log_first_nonfinite("eta", eta)
+            ct_safe = torch.where(
+                torch.abs(ct) < eps,
+                torch.sign(ct.real) * eps + 1j * ct.imag,
+                ct
+            )
+            eta = Y / ct_safe
 
         # 计算相位延迟 delta = k * n * d * cos(theta)
         delta = 1j * g * d * ct
-        log_first_nonfinite("delta", delta)
 
         # 检测delta的范围，对于过大的虚部进行警告
         delta_imag_max = torch.abs(delta.imag).max().item()
@@ -171,7 +132,11 @@ def TMM_solver(thicknesses, refractive_indices, k, theta, pol):
         M[:,:,:,0,0] = cos_delta
 
         # 对于 1/eta，添加小量避免除零
-        eta_safe = make_safe(eta)
+        eta_safe = torch.where(
+            torch.abs(eta) < eps,
+            torch.sign(eta.real) * eps + 1j * eta.imag,
+            eta
+        )
         M[:,:,:,0,1] = 1j * sin_delta / eta_safe
         M[:,:,:,1,0] = 1j * eta * sin_delta
         M[:,:,:,1,1] = cos_delta
@@ -194,7 +159,6 @@ def TMM_solver(thicknesses, refractive_indices, k, theta, pol):
                 M_t = M_combined[:,:,0,:,:]
                 for i in range(1, num_layers):
                     M_t = torch.matmul(M_t, M_combined[:,:,i,:,:])
-        log_first_nonfinite("M_t", M_t)
 
         # 检查传输矩阵是否包含nan或inf
         if torch.isnan(M_t).any() or torch.isinf(M_t).any():
@@ -215,10 +179,13 @@ def TMM_solver(thicknesses, refractive_indices, k, theta, pol):
         # 计算分母
         denominator = eta_0 * (M_t[:,:,0,0] + M_t[:,:,0,1] * eta_N) + \
                      (M_t[:,:,1,0] + M_t[:,:,1,1] * eta_N)
-        log_first_nonfinite("denominator", denominator)
 
         # 添加小量避免除零
-        denominator_safe = make_safe(denominator)
+        denominator_safe = torch.where(
+            torch.abs(denominator) < eps,
+            torch.sign(denominator.real) * eps + 1j * denominator.imag,
+            denominator
+        )
 
         # 计算反射系数 r
         numerator_r = eta_0 * (M_t[:,:,0,0] + M_t[:,:,0,1] * eta_N) - \
@@ -233,10 +200,12 @@ def TMM_solver(thicknesses, refractive_indices, k, theta, pol):
 
         # 计算透射率 T = |t|^2 * Re(eta_N / eta_0)
         # 添加小量避免除零
-        eta_0_safe = make_safe(eta_0)
+        eta_0_safe = torch.where(
+            torch.abs(eta_0) < eps,
+            torch.sign(eta_0.real) * eps + 1j * eta_0.imag,
+            eta_0
+        )
         T = torch.pow(torch.abs(t), 2) * torch.real(eta_N / eta_0_safe)
-        log_first_nonfinite("R", R)
-        log_first_nonfinite("T", T)
 
         # 检查输出是否包含nan或inf
         if torch.isnan(R).any() or torch.isinf(R).any():
