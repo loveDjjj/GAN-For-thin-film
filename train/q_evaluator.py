@@ -1,4 +1,4 @@
-"""Training-time Q-factor evaluation helpers."""
+"""Training-time Q and Lorentzian-MSE evaluation helpers."""
 
 import os
 
@@ -109,42 +109,74 @@ def compute_q_factors_torch(wavelengths, absorption_spectra, eps=1e-12):
     }
 
 
-def summarize_q_results(q_results, epoch, alpha, num_samples):
-    """Compute summary statistics for a batch of Q-factor results."""
-    q_values = q_results["q_values"]
-    valid_mask = q_results["valid_mask"]
-    valid_q_values = q_values[valid_mask]
+def generate_peak_aligned_lorentzian_curves_torch(wavelengths, peak_wavelengths, width):
+    """Build normalized Lorentzian targets centered at each sample peak wavelength."""
+    if width <= 0:
+        raise ValueError("lorentzian width must be positive")
 
-    if valid_q_values.numel() > 0:
-        mean_q = valid_q_values.mean().item()
-        median_q = valid_q_values.median().item()
-        max_q = valid_q_values.max().item()
-        std_q = valid_q_values.std(unbiased=False).item()
-    else:
-        mean_q = 0.0
-        median_q = 0.0
-        max_q = 0.0
-        std_q = 0.0
+    if peak_wavelengths.ndim != 1:
+        raise ValueError("peak_wavelengths must have shape [batch_size]")
+
+    wavelengths = wavelengths.to(device=peak_wavelengths.device, dtype=peak_wavelengths.dtype).flatten()
+    gamma = torch.as_tensor(width, device=peak_wavelengths.device, dtype=peak_wavelengths.dtype)
+    curves = (gamma / 2) / ((wavelengths.unsqueeze(0) - peak_wavelengths.unsqueeze(1)) ** 2 + (gamma / 2) ** 2)
+
+    max_values = curves.amax(dim=1, keepdim=True).clamp_min(torch.finfo(curves.dtype).eps)
+    return curves / max_values
+
+
+def compute_peak_lorentzian_mse_torch(wavelengths, absorption_spectra, peak_wavelengths, width):
+    """Compute per-sample MSE to a peak-aligned Lorentzian target in parallel."""
+    target_curves = generate_peak_aligned_lorentzian_curves_torch(wavelengths, peak_wavelengths, width)
+    mse_values = torch.mean((absorption_spectra - target_curves) ** 2, dim=1)
+    mse_values = torch.nan_to_num(mse_values, nan=0.0, posinf=0.0, neginf=0.0)
+    return {"mse_values": mse_values}
+
+
+def compute_q_mse_metrics_torch(wavelengths, absorption_spectra, lorentz_width, eps=1e-12):
+    """Compute Q factors and peak-aligned Lorentzian MSE in one batched pass."""
+    q_results = compute_q_factors_torch(wavelengths, absorption_spectra, eps=eps)
+    mse_results = compute_peak_lorentzian_mse_torch(
+        wavelengths,
+        absorption_spectra,
+        q_results["peak_wavelengths"],
+        lorentz_width,
+    )
+    return {**q_results, **mse_results}
+
+
+def summarize_q_results(q_results, epoch, alpha, num_samples, lorentz_width):
+    """Compute summary statistics for a batch of Q and Lorentzian-MSE results."""
+    q_values = q_results["q_values"]
+    mse_values = q_results["mse_values"]
+    valid_mask = q_results["valid_mask"]
 
     return {
         "epoch": int(epoch),
         "alpha": float(alpha),
         "num_samples": int(num_samples),
+        "lorentz_width": float(lorentz_width),
         "valid_count": int(valid_mask.sum().item()),
         "valid_ratio": float(valid_mask.float().mean().item()),
-        "mean_q": float(mean_q),
-        "median_q": float(median_q),
-        "max_q": float(max_q),
-        "std_q": float(std_q),
+        "mean_q": float(q_values.mean().item()),
+        "median_q": float(q_values.median().item()),
+        "max_q": float(q_values.max().item()),
+        "std_q": float(q_values.std(unbiased=False).item()),
+        "mean_mse": float(mse_values.mean().item()),
+        "median_mse": float(mse_values.median().item()),
+        "min_mse": float(mse_values.min().item()),
+        "max_mse": float(mse_values.max().item()),
+        "std_mse": float(mse_values.std(unbiased=False).item()),
     }
 
 
 def save_q_evaluation_epoch(q_results, summary, save_dir):
-    """Save per-epoch Q-factor statistics and plots."""
+    """Save per-epoch Q and MSE statistics and plots."""
     os.makedirs(save_dir, exist_ok=True)
 
     epoch = summary["epoch"]
     q_values = q_results["q_values"].detach().cpu().numpy()
+    mse_values = q_results["mse_values"].detach().cpu().numpy()
     valid_mask = q_results["valid_mask"].detach().cpu().numpy()
     peak_wavelengths = q_results["peak_wavelengths"].detach().cpu().numpy()
     peak_absorptions = q_results["peak_absorptions"].detach().cpu().numpy()
@@ -156,6 +188,7 @@ def save_q_evaluation_epoch(q_results, summary, save_dir):
         {
             "sample_index": range(len(q_values)),
             "q_value": q_values,
+            "lorentz_mse": mse_values,
             "valid": valid_mask,
             "peak_wavelength_um": peak_wavelengths,
             "peak_absorption": peak_absorptions,
@@ -164,75 +197,112 @@ def save_q_evaluation_epoch(q_results, summary, save_dir):
             "fwhm_um": fwhm,
         }
     )
-    details_path = os.path.join(save_dir, f"q_values_epoch_{epoch}.csv")
+    details_path = os.path.join(save_dir, f"q_mse_metrics_epoch_{epoch}.csv")
     details_df.to_csv(details_path, index=False)
 
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
 
-    axes[0].hist(q_values, bins=30, color="steelblue", alpha=0.85, edgecolor="black")
-    axes[0].set_title(f"Q Distribution (Epoch {epoch})")
-    axes[0].set_xlabel("Q")
-    axes[0].set_ylabel("Count")
-    axes[0].grid(True, alpha=0.3)
+    axes[0, 0].hist(q_values, bins=30, color="steelblue", alpha=0.85, edgecolor="black")
+    axes[0, 0].set_title(f"Q Distribution (Epoch {epoch})")
+    axes[0, 0].set_xlabel("Q")
+    axes[0, 0].set_ylabel("Count")
+    axes[0, 0].grid(True, alpha=0.3)
 
-    axes[1].scatter(peak_wavelengths, q_values, s=10, alpha=0.65, color="darkorange")
-    axes[1].set_title(f"Peak Wavelength vs Q (Epoch {epoch})")
-    axes[1].set_xlabel("Peak Wavelength (um)")
-    axes[1].set_ylabel("Q")
-    axes[1].grid(True, alpha=0.3)
+    axes[0, 1].scatter(peak_wavelengths, q_values, s=10, alpha=0.65, color="darkorange")
+    axes[0, 1].set_title(f"Peak Wavelength vs Q (Epoch {epoch})")
+    axes[0, 1].set_xlabel("Peak Wavelength (um)")
+    axes[0, 1].set_ylabel("Q")
+    axes[0, 1].grid(True, alpha=0.3)
+
+    axes[1, 0].hist(mse_values, bins=30, color="seagreen", alpha=0.85, edgecolor="black")
+    axes[1, 0].set_title(f"Lorentzian MSE Distribution (Epoch {epoch})")
+    axes[1, 0].set_xlabel("MSE")
+    axes[1, 0].set_ylabel("Count")
+    axes[1, 0].grid(True, alpha=0.3)
+
+    axes[1, 1].scatter(peak_wavelengths, mse_values, s=10, alpha=0.65, color="crimson")
+    axes[1, 1].set_title(f"Peak Wavelength vs Lorentzian MSE (Epoch {epoch})")
+    axes[1, 1].set_xlabel("Peak Wavelength (um)")
+    axes[1, 1].set_ylabel("MSE")
+    axes[1, 1].grid(True, alpha=0.3)
 
     fig.suptitle(
-        f"Epoch {epoch} Q Evaluation | mean={summary['mean_q']:.2f}, valid={summary['valid_ratio'] * 100:.1f}%",
+        (
+            f"Epoch {epoch} Q/MSE Evaluation | mean_q={summary['mean_q']:.2f}, "
+            f"mean_mse={summary['mean_mse']:.6f}, valid={summary['valid_ratio'] * 100:.1f}%"
+        ),
         fontsize=14,
     )
-    plt.tight_layout(rect=[0, 0, 1, 0.95])
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
 
-    plot_path = os.path.join(save_dir, f"q_distribution_epoch_{epoch}.png")
+    plot_path = os.path.join(save_dir, f"q_mse_distribution_epoch_{epoch}.png")
     fig.savefig(plot_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
 
-    print(f"Q evaluation detail CSV saved to: {details_path}")
-    print(f"Q evaluation distribution plot saved to: {plot_path}")
+    print(f"Q/MSE evaluation detail CSV saved to: {details_path}")
+    print(f"Q/MSE evaluation distribution plot saved to: {plot_path}")
 
 
 def save_q_evaluation_history(history, save_dir):
-    """Save cross-epoch Q-factor summary CSV and plots."""
+    """Save cross-epoch Q and MSE summary CSV and plots."""
     if not history:
         return
 
     os.makedirs(save_dir, exist_ok=True)
     history_df = pd.DataFrame(history)
 
-    summary_path = os.path.join(save_dir, "q_evaluation_summary.csv")
+    summary_path = os.path.join(save_dir, "q_mse_evaluation_summary.csv")
     history_df.to_csv(summary_path, index=False)
 
-    fig, axes = plt.subplots(2, 1, figsize=(10, 10), sharex=True)
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10), sharex=True)
 
-    axes[0].plot(history_df["epoch"], history_df["mean_q"], marker="o", linewidth=2, label="Mean Q")
-    axes[0].plot(history_df["epoch"], history_df["median_q"], marker="s", linewidth=2, label="Median Q")
-    axes[0].plot(history_df["epoch"], history_df["max_q"], marker="^", linewidth=2, label="Max Q")
-    axes[0].set_ylabel("Q")
-    axes[0].set_title("Q-factor Statistics During Training")
-    axes[0].grid(True, alpha=0.3)
-    axes[0].legend()
+    axes[0, 0].plot(history_df["epoch"], history_df["mean_q"], marker="o", linewidth=2, label="Mean Q")
+    axes[0, 0].plot(history_df["epoch"], history_df["median_q"], marker="s", linewidth=2, label="Median Q")
+    axes[0, 0].plot(history_df["epoch"], history_df["max_q"], marker="^", linewidth=2, label="Max Q")
+    axes[0, 0].set_ylabel("Q")
+    axes[0, 0].set_title("Q Statistics During Training")
+    axes[0, 0].grid(True, alpha=0.3)
+    axes[0, 0].legend()
 
-    axes[1].plot(history_df["epoch"], history_df["valid_ratio"] * 100.0, marker="o", linewidth=2, color="tab:green")
-    axes[1].set_xlabel("Epoch")
-    axes[1].set_ylabel("Valid Ratio (%)")
-    axes[1].set_title("Share of Samples with Valid Half-Max Crossings")
-    axes[1].grid(True, alpha=0.3)
+    axes[0, 1].plot(
+        history_df["epoch"],
+        history_df["valid_ratio"] * 100.0,
+        marker="o",
+        linewidth=2,
+        color="tab:green",
+    )
+    axes[0, 1].set_ylabel("Valid Ratio (%)")
+    axes[0, 1].set_title("Share of Samples with Valid Half-Max Crossings")
+    axes[0, 1].grid(True, alpha=0.3)
+
+    axes[1, 0].plot(history_df["epoch"], history_df["mean_mse"], marker="o", linewidth=2, label="Mean MSE")
+    axes[1, 0].plot(history_df["epoch"], history_df["median_mse"], marker="s", linewidth=2, label="Median MSE")
+    axes[1, 0].plot(history_df["epoch"], history_df["min_mse"], marker="^", linewidth=2, label="Min MSE")
+    axes[1, 0].set_xlabel("Epoch")
+    axes[1, 0].set_ylabel("MSE")
+    axes[1, 0].set_title("Peak-Aligned Lorentzian MSE During Training")
+    axes[1, 0].grid(True, alpha=0.3)
+    axes[1, 0].legend()
+
+    axes[1, 1].plot(history_df["epoch"], history_df["max_mse"], marker="o", linewidth=2, label="Max MSE")
+    axes[1, 1].plot(history_df["epoch"], history_df["std_mse"], marker="s", linewidth=2, label="Std MSE")
+    axes[1, 1].set_xlabel("Epoch")
+    axes[1, 1].set_ylabel("MSE")
+    axes[1, 1].set_title("MSE Spread During Training")
+    axes[1, 1].grid(True, alpha=0.3)
+    axes[1, 1].legend()
 
     plt.tight_layout()
-    plot_path = os.path.join(save_dir, "q_evaluation_curves.png")
+    plot_path = os.path.join(save_dir, "q_mse_evaluation_curves.png")
     fig.savefig(plot_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
 
-    print(f"Q evaluation summary CSV saved to: {summary_path}")
-    print(f"Q evaluation summary plot saved to: {plot_path}")
+    print(f"Q/MSE evaluation summary CSV saved to: {summary_path}")
+    print(f"Q/MSE evaluation summary plot saved to: {plot_path}")
 
 
 def evaluate_generator_q(generator, params, device, alpha, epoch, save_dir):
-    """Generate samples in batches, compute Q factors in parallel, and save summary artifacts."""
+    """Generate samples in batches, compute Q and MSE in parallel, and save summary artifacts."""
     num_samples = max(1, int(getattr(params, "q_eval_num_samples", 1000)))
     batch_size = max(1, min(int(getattr(params, "batch_size", num_samples)), num_samples))
     wavelengths = (2 * torch.pi / params.k.to(device)).float()
@@ -252,7 +322,13 @@ def evaluate_generator_q(generator, params, device, alpha, epoch, save_dir):
             reflection = torch.nan_to_num(reflection, nan=1.0, posinf=1.0, neginf=1.0)
             absorption = (1 - reflection).float()
 
-            collected_results.append(compute_q_factors_torch(wavelengths, absorption))
+            collected_results.append(
+                compute_q_mse_metrics_torch(
+                    wavelengths,
+                    absorption,
+                    lorentz_width=float(getattr(params, "lorentz_width", 0.02)),
+                )
+            )
 
     if generator_was_training:
         generator.train()
@@ -261,6 +337,12 @@ def evaluate_generator_q(generator, params, device, alpha, epoch, save_dir):
         key: torch.cat([result[key].detach().cpu() for result in collected_results], dim=0)
         for key in collected_results[0]
     }
-    summary = summarize_q_results(merged_results, epoch=epoch, alpha=alpha, num_samples=num_samples)
+    summary = summarize_q_results(
+        merged_results,
+        epoch=epoch,
+        alpha=alpha,
+        num_samples=num_samples,
+        lorentz_width=float(getattr(params, "lorentz_width", 0.02)),
+    )
     save_q_evaluation_epoch(merged_results, summary, save_dir)
     return summary

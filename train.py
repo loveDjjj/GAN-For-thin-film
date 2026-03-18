@@ -151,9 +151,10 @@ def load_parameters(config_path, device):
         f"heatmap_epoch_tick_step={params.heatmap_epoch_tick_step}"
     )
     print(
-        "Q evaluation parameters: "
+        "Q/MSE evaluation parameters: "
         f"interval={params.q_eval_interval}, "
-        f"num_samples={params.q_eval_num_samples}"
+        f"num_samples={params.q_eval_num_samples}, "
+        f"lorentz_width={params.lorentz_width}"
     )
 
     return params

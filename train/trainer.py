@@ -159,7 +159,7 @@ def train_gan(config_path, output_dir, device=None, load_parameters=None, setup_
     print(f"Alpha schedule: {params.alpha_min} -> {params.alpha_max}")
     if q_eval_interval > 0:
         print(
-            "Q evaluation enabled: "
+            "Q/MSE evaluation enabled: "
             f"every {q_eval_interval} epochs, {params.q_eval_num_samples} generated samples per evaluation"
         )
     progress_bar = tqdm(range(params.epochs), desc="Training progress")
@@ -302,6 +302,7 @@ def train_gan(config_path, output_dir, device=None, load_parameters=None, setup_
                 )
 
         latest_mean_q = q_evaluation_history[-1]["mean_q"] if q_evaluation_history else 0.0
+        latest_mean_mse = q_evaluation_history[-1]["mean_mse"] if q_evaluation_history else 0.0
         if q_eval_interval > 0 and current_epoch % q_eval_interval == 0:
             q_summary = evaluate_generator_q(
                 generator,
@@ -314,9 +315,10 @@ def train_gan(config_path, output_dir, device=None, load_parameters=None, setup_
             q_evaluation_history.append(q_summary)
             save_q_evaluation_history(q_evaluation_history, q_evaluation_dir)
             latest_mean_q = q_summary["mean_q"]
+            latest_mean_mse = q_summary["mean_mse"]
             print(
                 f"[QEval] epoch={current_epoch} mean_q={q_summary['mean_q']:.4f} "
-                f"median_q={q_summary['median_q']:.4f} valid_ratio={q_summary['valid_ratio'] * 100:.2f}%"
+                f"mean_mse={q_summary['mean_mse']:.6f} valid_ratio={q_summary['valid_ratio'] * 100:.2f}%"
             )
 
         gp_last = gp_losses[-1] if gp_losses else 0.0
@@ -330,6 +332,7 @@ def train_gan(config_path, output_dir, device=None, load_parameters=None, setup_
                 "Thick": f"{mean_thickness:.3f}",
                 "Layers": f"{mean_merged_layers:.1f}",
                 "AvgQ": f"{latest_mean_q:.2f}" if q_evaluation_history else "N/A",
+                "AvgMSE": f"{latest_mean_mse:.4e}" if q_evaluation_history else "N/A",
             }
         )
 

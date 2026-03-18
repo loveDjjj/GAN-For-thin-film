@@ -2,7 +2,7 @@
 
 ## 项目简介
 
-本项目使用 GAN 生成多层薄膜的层厚和材料概率，再通过传输矩阵法（TMM）计算反射/吸收谱，使生成谱形逼近目标 Lorentzian 曲线。当前仓库还包含推理筛选、Q-factor 计算、结构优化和批量样本分析脚本。
+本项目使用 GAN 生成多层薄膜的层厚和材料概率，再通过传输矩阵法（TMM）计算反射/吸收谱，使生成谱形逼近目标 Lorentzian 曲线。当前仓库还包含推理筛选、Q-factor 计算、结构优化、批量样本分析，以及训练期批量 Q/MSE 评估。
 
 ## 项目结构
 
@@ -36,7 +36,7 @@ requirements.txt
 
 - `train.py`：训练入口，读取 `config/training_config.yaml` 并创建训练输出目录。
 - `train/trainer.py`：GAN 训练主循环，调用 Lorentzian 目标谱和 TMM 反射率计算。
-- `train/q_evaluator.py`：训练期大规模生成样本，批量计算每个样本的 Q 值并输出统计结果。
+- `train/q_evaluator.py`：训练期大规模生成样本，批量计算每个样本的 Q 值和峰值对齐 Lorentzian MSE，并输出统计结果。
 - `infer.py`：推理入口，先读 `config/inference_config.yaml`，再允许 CLI 覆盖同名参数。
 - `inference/inferer.py`：批量生成样本、按目标谱筛选 best samples、计算 Pareto front 和 Q-factor。
 - `model/net.py`：生成器与判别器定义。
@@ -103,7 +103,7 @@ python analyze_gan_samoples.py --model_path <generator_final.pth> --config_path 
 - 训练输出：`results/spectral_gan/run_YYYYMMDD_HHMMSS/`
   - 典型内容：`models/`、`samples/`、`samples/data/`、`training_metrics.png`
   - 分布图：`thickness_distribution_evolution_combined.png`、`merged_layers_distribution_evolution_combined.png`
-  - Q 值评估：`q_evaluation/`、`q_evaluation_summary.csv`、`q_evaluation_curves.png`
+  - Q/MSE 评估：`q_evaluation/`、`q_mse_evaluation_summary.csv`、`q_mse_evaluation_curves.png`、`q_mse_metrics_epoch_*.csv`
 - 推理输出：`generated_samples/best_samples_YYYYMMDD_HHMMSS/`
   - 典型内容：`best_sample_*_absorption.xlsx`、`best_sample_*_structure.txt`、`best_samples_q.txt`、`pareto_front/`
 - 其他脚本输出：
