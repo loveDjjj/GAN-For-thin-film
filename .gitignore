@@ -1,5 +1,6 @@
 results/
 .claude/
+.vscode/
 **/__pycache__/
 generated_samples/
 # A. 忽略指定路径文件夹（仅仓库根目录）

@@ -1,80 +1,117 @@
 # 薄膜光学谱 GAN（Spectral GAN）
 
-本项目使用 GAN 生成薄膜结构参数（层厚与材料概率），通过并行传输矩阵法
-（TMM）计算反射/吸收光谱，使生成谱形逼近目标洛伦兹吸收曲线。
+## 项目简介
 
-## 核心思路
-- 生成器：输出每层厚度与材料概率。
-- TMM：将结构参数映射到光谱。
-- 判别器：区分真实洛伦兹谱与生成谱。
+本项目使用 GAN 生成多层薄膜的层厚和材料概率，再通过传输矩阵法（TMM）计算反射/吸收谱，使生成谱形逼近目标 Lorentzian 曲线。当前仓库还包含推理筛选、Q-factor 计算、结构优化和批量样本分析脚本。
 
-## 入口脚本
-- 训练入口：`train.py`
-- 推理入口：`infer.py`
+## 项目结构
 
-保留旧入口用于兼容：
-- `train_material_combinations.py` -> 调用 `train.py`
-- `load_gan_model.py` -> 调用 `infer.py`
+```text
+config/
+  training_config.yaml
+  inference_config.yaml
+data/
+  Materials/
+  myindex.py
+model/
+  net.py
+  TMM/
+train/
+  trainer.py
+  sample_saver.py
+inference/
+  inferer.py
+  filtering.py
+  visualization.py
+train.py
+infer.py
+calculate_q_factor.py
+optimize_structure.py
+analyze_gan_samoples.py
+requirements.txt
+```
 
-## 主要结构
-- `train.py`：训练入口，读取配置与参数。
-- `train/trainer.py`：训练循环（GAN 优化）。
-- `train/sample_saver.py`：训练过程样本可视化与保存。
-- `infer.py`：推理入口，读取配置与模型。
-- `inference/inferer.py`：推理流程（生成、评分、筛选）。
-- `inference/results.py`：推理结果保存与可视化。
-- `model/net.py`：生成器与判别器网络。
-- `model/Lorentzian/lorentzian_curves.py`：洛伦兹谱生成器。
-- `model/TMM/optical_calculator.py`：并行 TMM 反射计算。
-- `model/TMM/TMM.py`：TMM 核心求解器。
-- `data/myindex.py`：材料数据库与插值。
-- `config/training_config.yaml`：训练配置（必需）。
-- `config/inference_config.yaml`：推理配置（必需）。
+## 关键文件说明
 
-## 安装
+- `train.py`：训练入口，读取 `config/training_config.yaml` 并创建训练输出目录。
+- `train/trainer.py`：GAN 训练主循环，调用 Lorentzian 目标谱和 TMM 反射率计算。
+- `infer.py`：推理入口，先读 `config/inference_config.yaml`，再允许 CLI 覆盖同名参数。
+- `inference/inferer.py`：批量生成样本、按目标谱筛选 best samples、计算 Pareto front 和 Q-factor。
+- `model/net.py`：生成器与判别器定义。
+- `model/TMM/`：TMM 光学计算。
+- `data/myindex.py`：材料 `.mat` 文件读取与折射率插值。
+- `config/training_config.yaml`：训练所需结构、材料、光学、训练和可视化参数。
+- `config/inference_config.yaml`：推理所需模型路径、训练配置路径、筛选参数和输出目录。
+
+## 运行方法
+
+安装依赖：
+
 ```bash
 pip install -r requirements.txt
 ```
 
-## 训练
+训练：
+
 ```bash
 python train.py --config config/training_config.yaml --output_dir results/spectral_gan
 ```
 
-## 推理
+推理：
+
 ```bash
 python infer.py
 ```
-默认读取 `config/inference_config.yaml`，命令行参数会覆盖 YAML。
+
+说明：
+
+- `infer.py` 默认读取 `config/inference_config.yaml`。
+- 当前 `config/inference_config.yaml` 里的 `model_path` 指向历史 `results\spectral_gan\run_20260122_004657\models\generator_final.pth`。
+- 当前仓库未发现该 `results/` 目录，因此本地是否可直接运行推理，待确认。
+
+Q-factor 计算：
+
+```bash
+python calculate_q_factor.py --file generated_samples/<run>/best_sample_1_absorption.xlsx --center 4.26 --range 0.1 --output_dir q_results --plot
+```
+
+结构优化：
+
+```bash
+python optimize_structure.py --file generated_samples/<run>/best_sample_1_structure.txt --center1 4.26 --center2 8.5 --range 0.3 --output_dir optimized_results
+```
+
+批量样本分析：
+
+```bash
+python analyze_gan_samoples.py --model_path <generator_final.pth> --config_path config/training_config.yaml --output_dir analysis_results --max_samples 100000 --batch_size 500 --alpha 200
+```
 
 ## 配置说明
-所有参数必须来自 YAML，不再存在代码内默认值。
 
-### 训练配置：`config/training_config.yaml`
-必需字段：
-- `structure`：`N_layers`, `pol`, `thickness_sup`, `thickness_bot`
-- `materials`：`materials_list`
-- `optics`：`wavelength_range`, `samples_total`, `theta`, `n_top`, `n_bot`,
-  `lorentz_width`, `lorentz_center_range`, `metal_name`
-- `generator`：`thickness_noise_dim`, `material_noise_dim`, `alpha_sup`, `alpha`
-- `training`：`epochs`, `batch_size`, `save_interval`, `noise_level`, `lambda_gp`
-- `optimizer`：`lr_gen`, `lr_disc`, `beta1`, `beta2`, `weight_decay`
+- `config/training_config.yaml`
+  - 分组：`structure`、`materials`、`optics`、`generator`、`training`、`optimizer`、`visualization`
+- `config/inference_config.yaml`
+  - 关键字段：`model_path`、`config_path`、`output_dir`、`num_samples`、`infer_batch_size`、`alpha`、`target_center`、`target_width`、`center_region`、`weight_factor`、`best_samples`、`q_eval_window`
 
-### 推理配置：`config/inference_config.yaml`
-必需字段：
-- `model_path`, `config_path`, `output_dir`, `num_samples`, `alpha`
-- `target_center`, `target_width`, `center_region`, `weight_factor`, `best_samples`
+当前仓库未发现更复杂的配置继承系统，主要是 YAML 加载加 CLI 覆盖。
 
 ## 输出说明
-训练输出（每次运行一个目录）：
-- `models/`：生成器/判别器权重
-- `samples/`：真实谱与生成谱对比图
-- `samples/data/`：谱数据与结构文本
-- `training_metrics.png`：训练曲线
 
-推理输出：
-- `generated_samples/best_samples_*/`：筛选出的谱、结构与对比图
+- 训练输出：`results/spectral_gan/run_YYYYMMDD_HHMMSS/`
+  - 典型内容：`models/`、`samples/`、`samples/data/`、`training_metrics.png`
+- 推理输出：`generated_samples/best_samples_YYYYMMDD_HHMMSS/`
+  - 典型内容：`best_sample_*_absorption.xlsx`、`best_sample_*_structure.txt`、`best_samples_q.txt`、`pareto_front/`
+- 其他脚本输出：
+  - `calculate_q_factor.py` -> `q_results/`
+  - `optimize_structure.py` -> `optimized_results/`
+  - `analyze_gan_samoples.py` -> `analysis_results/`
 
-## 备注
-- 洛伦兹真实谱在 GPU 上批量生成。
-- 衬底金属材料由 `optics.metal_name` 配置。
+## 阅读顺序
+
+1. `README.md`
+2. `config/training_config.yaml`
+3. `train.py`
+4. `config/inference_config.yaml`
+5. `infer.py`
+6. 按任务再读 `train/trainer.py`、`inference/inferer.py`、`model/TMM/`、`data/myindex.py`
