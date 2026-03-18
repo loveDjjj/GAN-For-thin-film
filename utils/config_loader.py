@@ -137,6 +137,16 @@ def update_params(params, config):
             },
         )
 
+    if "q_evaluation" in config:
+        _update_from_mapping(
+            params,
+            config["q_evaluation"],
+            {
+                "interval": "q_eval_interval",
+                "num_samples": "q_eval_num_samples",
+            },
+        )
+
     params.user_define = False
     return params
 

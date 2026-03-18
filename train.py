@@ -111,6 +111,10 @@ def load_parameters(config_path, device):
         params.distribution_epoch_interval,
     )
 
+    q_evaluation = config.get("q_evaluation", {})
+    params.q_eval_interval = max(0, int(q_evaluation.get("interval", 0)))
+    params.q_eval_num_samples = max(1, int(q_evaluation.get("num_samples", 1000)))
+
     params.user_define = False
     print(f"Configuration loaded from {config_path}")
 
@@ -145,6 +149,11 @@ def load_parameters(config_path, device):
         f"thickness_histogram_bins={params.thickness_histogram_bins}, "
         f"distribution_epoch_interval={params.distribution_epoch_interval}, "
         f"heatmap_epoch_tick_step={params.heatmap_epoch_tick_step}"
+    )
+    print(
+        "Q evaluation parameters: "
+        f"interval={params.q_eval_interval}, "
+        f"num_samples={params.q_eval_num_samples}"
     )
 
     return params

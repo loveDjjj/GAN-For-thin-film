@@ -1,52 +1,57 @@
 # Spectral GAN training configuration
+# 该文件负责控制训练、训练期可视化，以及训练过程中周期性的 Q 值评估。
 
 structure:
-  N_layers: 10
-  pol: 0
-  thickness_sup: 0.5
-  thickness_bot: 0.05
+  N_layers: 10          # 参与生成的可学习薄膜层数
+  pol: 0                # 偏振类型：0=TE，1=TM
+  thickness_sup: 0.5    # 单层厚度上限，单位 um
+  thickness_bot: 0.05   # 单层厚度下限，单位 um
 
 materials:
   materials_list:
-    - Ge
-    - SiO2
+    - Ge                # 候选材料 1；名称需能被 data/myindex.py 在 data/Materials/ 下解析
+    - SiO2              # 候选材料 2
 
 optics:
-  wavelength_range: [3, 6]
-  samples_total: 1000
-  theta: 0.0
-  n_top: 1.0
-  n_bot: 1.0
-  lorentz_width: 0.02
-  lorentz_center_range: [3, 6]
-  metal_name: "Au"
+  wavelength_range: [3, 6]        # 训练和推理共享的波长范围，单位 um
+  samples_total: 1000             # 每条光谱的离散采样点数；同时决定判别器输入长度
+  theta: 0.0                      # 入射角，单位 rad
+  n_top: 1.0                      # 入射侧介质折射率
+  n_bot: 1.0                      # 出射侧介质折射率；当前代码仍会额外拼接底部金属层
+  lorentz_width: 0.02             # 训练目标 Lorentzian 曲线的谱宽，单位 um
+  lorentz_center_range: [3, 6]    # 训练时随机采样的 Lorentzian 峰中心范围，单位 um
+  metal_name: "Au"                # TMM 中使用的底部金属材料名称
 
 generator:
-  thickness_noise_dim: 1024
-  material_noise_dim: 1024
-  alpha_min: 1      # softmax温度下限（训练开始时）
-  alpha_max: 5      # softmax温度上限（训练结束时）
+  thickness_noise_dim: 1024       # 厚度生成分支的噪声维度
+  material_noise_dim: 1024        # 材料选择分支的噪声维度
+  alpha_min: 1                    # 训练开始时的 softmax 温度
+  alpha_max: 5                    # 训练结束时的 softmax 温度
 
 training:
-  epochs: 100
-  batch_size: 512
-  save_interval: 10
-  noise_level: 0.005
-  lambda_gp: 3.0
-  d_steps: 1
-  g_steps: 2
+  epochs: 100                     # 总训练 epoch 数
+  batch_size: 512                 # 训练批大小；Q 值评估也默认按该批大小分批生成
+  save_interval: 10               # 每隔多少个 epoch 保存 checkpoint 和训练样本
+  noise_level: 0.005              # 判别器输入噪声幅度，用于稳定 GAN 训练
+  lambda_gp: 3.0                  # 梯度惩罚权重
+  d_steps: 1                      # 每个 epoch 中判别器更新次数
+  g_steps: 2                      # 每个 epoch 中生成器更新次数
 
 optimizer:
-  lr_gen: 0.001
-  lr_disc: 0.0001
-  beta1: 0.9
-  beta2: 0.999
-  weight_decay: 0.0001
+  lr_gen: 0.001                   # 生成器学习率
+  lr_disc: 0.0001                 # 判别器学习率
+  beta1: 0.9                      # Adam beta1
+  beta2: 0.999                    # Adam beta2
+  weight_decay: 0.0001            # 判别器权重衰减
 
 visualization:
-  checkpoint_sample_count: 8
-  sample_export_count: 4
-  material_analysis_batch_size: 64
-  thickness_histogram_bins: 20
-  distribution_epoch_interval: 10
-  heatmap_epoch_tick_step: 10
+  checkpoint_sample_count: 8      # 保存训练样本图时一次生成的样本数
+  sample_export_count: 4          # 每次导出的样本条目数
+  material_analysis_batch_size: 64 # 材料概率分析时的采样批大小
+  thickness_histogram_bins: 20    # 厚度直方图的 bin 数
+  distribution_epoch_interval: 10 # 统计厚度/层数分布的 epoch 间隔
+  heatmap_epoch_tick_step: 10     # 分布热力图 y 轴刻度步长
+
+q_evaluation:
+  interval: 10                    # 每隔多少个 epoch 进行一次大规模 Q 值评估；设置为 0 可关闭
+  num_samples: 1000               # 每次评估生成的样本数；每个样本取最高峰并按半高宽计算 Q

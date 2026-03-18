@@ -18,6 +18,7 @@ model/
   TMM/
 train/
   trainer.py
+  q_evaluator.py
   sample_saver.py
 inference/
   inferer.py
@@ -35,6 +36,7 @@ requirements.txt
 
 - `train.py`：训练入口，读取 `config/training_config.yaml` 并创建训练输出目录。
 - `train/trainer.py`：GAN 训练主循环，调用 Lorentzian 目标谱和 TMM 反射率计算。
+- `train/q_evaluator.py`：训练期大规模生成样本，批量计算每个样本的 Q 值并输出统计结果。
 - `infer.py`：推理入口，先读 `config/inference_config.yaml`，再允许 CLI 覆盖同名参数。
 - `inference/inferer.py`：批量生成样本、按目标谱筛选 best samples、计算 Pareto front 和 Q-factor。
 - `model/net.py`：生成器与判别器定义。
@@ -90,7 +92,7 @@ python analyze_gan_samoples.py --model_path <generator_final.pth> --config_path 
 ## 配置说明
 
 - `config/training_config.yaml`
-  - 分组：`structure`、`materials`、`optics`、`generator`、`training`、`optimizer`、`visualization`
+  - 分组：`structure`、`materials`、`optics`、`generator`、`training`、`optimizer`、`visualization`、`q_evaluation`
 - `config/inference_config.yaml`
   - 关键字段：`model_path`、`config_path`、`output_dir`、`num_samples`、`infer_batch_size`、`alpha`、`target_center`、`target_width`、`center_region`、`weight_factor`、`best_samples`、`q_eval_window`
 
@@ -101,6 +103,7 @@ python analyze_gan_samoples.py --model_path <generator_final.pth> --config_path 
 - 训练输出：`results/spectral_gan/run_YYYYMMDD_HHMMSS/`
   - 典型内容：`models/`、`samples/`、`samples/data/`、`training_metrics.png`
   - 分布图：`thickness_distribution_evolution_combined.png`、`merged_layers_distribution_evolution_combined.png`
+  - Q 值评估：`q_evaluation/`、`q_evaluation_summary.csv`、`q_evaluation_curves.png`
 - 推理输出：`generated_samples/best_samples_YYYYMMDD_HHMMSS/`
   - 典型内容：`best_sample_*_absorption.xlsx`、`best_sample_*_structure.txt`、`best_samples_q.txt`、`pareto_front/`
 - 其他脚本输出：
