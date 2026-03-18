@@ -100,6 +100,7 @@ python analyze_gan_samoples.py --model_path <generator_final.pth> --config_path 
 
 - 训练输出：`results/spectral_gan/run_YYYYMMDD_HHMMSS/`
   - 典型内容：`models/`、`samples/`、`samples/data/`、`training_metrics.png`
+  - 分布图：`thickness_distribution_evolution_combined.png`、`merged_layers_distribution_evolution_combined.png`
 - 推理输出：`generated_samples/best_samples_YYYYMMDD_HHMMSS/`
   - 典型内容：`best_sample_*_absorption.xlsx`、`best_sample_*_structure.txt`、`best_samples_q.txt`、`pareto_front/`
 - 其他脚本输出：

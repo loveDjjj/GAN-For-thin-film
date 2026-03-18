@@ -292,7 +292,7 @@ def save_distribution_evolution_plots(
     thickness_bins=20,
     heatmap_epoch_tick_step=10,
 ):
-    """Save split plots and CSV files for thickness and merged-layer evolution."""
+    """Save combined 2x2 plots and CSV files for thickness and merged-layer evolution."""
     if not thickness_distribution_history or not merged_layers_distribution_history:
         print("No distribution data to visualize")
         return
@@ -310,20 +310,6 @@ def save_distribution_evolution_plots(
     )
     thickness_mean_csv = os.path.join(save_dir, "thickness_distribution_evolution_mean.csv")
     _save_dataframe(thickness_mean_df, thickness_mean_csv)
-
-    fig, ax = plt.subplots(figsize=(10, 6))
-    ax.plot(thickness_epochs, thickness_means, "g-", linewidth=2, marker="o", markersize=4)
-    ax.set_xlabel("Epoch")
-    ax.set_ylabel("Average Thickness (um)")
-    ax.set_title("Average Thickness Evolution")
-    ax.grid(True, alpha=0.3)
-    ax.axhline(y=thickness_range[0], color="gray", linestyle="--", alpha=0.5, label=f"Lower Bound ({thickness_range[0]:.3f} um)")
-    ax.axhline(y=thickness_range[1], color="gray", linestyle="--", alpha=0.5, label=f"Upper Bound ({thickness_range[1]:.3f} um)")
-    ax.legend(fontsize=9)
-    thickness_mean_png = os.path.join(save_dir, "thickness_distribution_evolution_mean.png")
-    fig.savefig(thickness_mean_png, dpi=300, bbox_inches="tight")
-    plt.close(fig)
-    print(f"Thickness mean evolution plot saved to: {thickness_mean_png}")
 
     first_bin_edges = np.asarray(thickness_distribution_history[0]["bin_edges"], dtype=float)
     bin_centers = (first_bin_edges[:-1] + first_bin_edges[1:]) / 2
@@ -352,36 +338,11 @@ def save_distribution_evolution_plots(
     thickness_heatmap_csv = os.path.join(save_dir, "thickness_distribution_evolution_heatmap.csv")
     _save_dataframe(thickness_heatmap_df, thickness_heatmap_csv)
 
-    fig, ax = plt.subplots(figsize=(12, 6))
-    im = ax.imshow(thickness_matrix, aspect="auto", cmap="YlOrRd", origin="upper")
-    ax.set_xlabel("Thickness (um)")
-    ax.set_ylabel("Epoch")
-    ax.set_title("Thickness Distribution Heatmap")
-    x_positions = _choose_tick_positions(len(bin_centers))
-    ax.set_xticks(x_positions)
-    ax.set_xticklabels([f"{bin_centers[pos]:.3f}" for pos in x_positions])
-    y_positions, y_labels = _build_heatmap_epoch_ticks(thickness_epochs, heatmap_epoch_tick_step)
-    ax.set_yticks(y_positions)
-    ax.set_yticklabels(y_labels)
-    plt.colorbar(im, ax=ax, label="Count")
-    thickness_heatmap_png = os.path.join(save_dir, "thickness_distribution_evolution_heatmap.png")
-    fig.savefig(thickness_heatmap_png, dpi=300, bbox_inches="tight")
-    plt.close(fig)
-    print(f"Thickness heatmap plot saved to: {thickness_heatmap_png}")
-
     comparison_indices = _select_snapshot_indices(len(thickness_distribution_history))
     thickness_comparison_rows = []
-    fig, ax = plt.subplots(figsize=(10, 6))
     for snapshot_index in comparison_indices:
         record = thickness_distribution_history[snapshot_index]
         hist_counts = np.asarray(record["hist_counts"], dtype=float)
-        ax.plot(
-            bin_centers,
-            hist_counts,
-            linewidth=2,
-            marker="o",
-            label=f"Epoch {record['epoch']}",
-        )
         for bin_index, count in enumerate(hist_counts):
             thickness_comparison_rows.append(
                 {
@@ -393,18 +354,8 @@ def save_distribution_evolution_plots(
                     "count": int(count),
                 }
             )
-    ax.set_xlabel("Thickness (um)")
-    ax.set_ylabel("Count")
-    ax.set_title("Thickness Distribution Comparison")
-    ax.grid(True, alpha=0.3)
-    if comparison_indices:
-        ax.legend()
     thickness_comparison_csv = os.path.join(save_dir, "thickness_distribution_evolution_comparison.csv")
     _save_dataframe(pd.DataFrame(thickness_comparison_rows), thickness_comparison_csv)
-    thickness_comparison_png = os.path.join(save_dir, "thickness_distribution_evolution_comparison.png")
-    fig.savefig(thickness_comparison_png, dpi=300, bbox_inches="tight")
-    plt.close(fig)
-    print(f"Thickness comparison plot saved to: {thickness_comparison_png}")
 
     thickness_stds = []
     for record in thickness_distribution_history:
@@ -426,16 +377,75 @@ def save_distribution_evolution_plots(
     thickness_std_csv = os.path.join(save_dir, "thickness_distribution_evolution_std.csv")
     _save_dataframe(thickness_std_df, thickness_std_csv)
 
-    fig, ax = plt.subplots(figsize=(10, 6))
+    # Render the four thickness views into a single 2x2 summary figure.
+    thickness_fig, thickness_axes = plt.subplots(2, 2, figsize=(18, 12))
+    thickness_fig.suptitle("Thickness Distribution Evolution Overview", fontsize=16, fontweight="bold")
+
+    ax = thickness_axes[0, 0]
     ax.plot(thickness_epochs, thickness_stds, "b-", linewidth=2, marker="s", markersize=4)
     ax.set_xlabel("Epoch")
     ax.set_ylabel("Thickness Std (um)")
     ax.set_title("Thickness Distribution Standard Deviation")
     ax.grid(True, alpha=0.3)
-    thickness_std_png = os.path.join(save_dir, "thickness_distribution_evolution_std.png")
-    fig.savefig(thickness_std_png, dpi=300, bbox_inches="tight")
-    plt.close(fig)
-    print(f"Thickness std evolution plot saved to: {thickness_std_png}")
+
+    ax = thickness_axes[0, 1]
+    ax.plot(thickness_epochs, thickness_means, "g-", linewidth=2, marker="o", markersize=4)
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Average Thickness (um)")
+    ax.set_title("Average Thickness Evolution")
+    ax.grid(True, alpha=0.3)
+    ax.axhline(
+        y=thickness_range[0],
+        color="gray",
+        linestyle="--",
+        alpha=0.5,
+        label=f"Lower Bound ({thickness_range[0]:.3f} um)",
+    )
+    ax.axhline(
+        y=thickness_range[1],
+        color="gray",
+        linestyle="--",
+        alpha=0.5,
+        label=f"Upper Bound ({thickness_range[1]:.3f} um)",
+    )
+    ax.legend(fontsize=9)
+
+    ax = thickness_axes[1, 0]
+    im = ax.imshow(thickness_matrix, aspect="auto", cmap="YlOrRd", origin="upper")
+    ax.set_xlabel("Thickness (um)")
+    ax.set_ylabel("Epoch")
+    ax.set_title("Thickness Distribution Heatmap")
+    x_positions = _choose_tick_positions(len(bin_centers))
+    ax.set_xticks(x_positions)
+    ax.set_xticklabels([f"{bin_centers[pos]:.3f}" for pos in x_positions])
+    y_positions, y_labels = _build_heatmap_epoch_ticks(thickness_epochs, heatmap_epoch_tick_step)
+    ax.set_yticks(y_positions)
+    ax.set_yticklabels(y_labels)
+    thickness_fig.colorbar(im, ax=ax, label="Count")
+
+    ax = thickness_axes[1, 1]
+    for snapshot_index in comparison_indices:
+        record = thickness_distribution_history[snapshot_index]
+        hist_counts = np.asarray(record["hist_counts"], dtype=float)
+        ax.plot(
+            bin_centers,
+            hist_counts,
+            linewidth=2,
+            marker="o",
+            label=f"Epoch {record['epoch']}",
+        )
+    ax.set_xlabel("Thickness (um)")
+    ax.set_ylabel("Count")
+    ax.set_title("Thickness Distribution Comparison")
+    ax.grid(True, alpha=0.3)
+    if comparison_indices:
+        ax.legend()
+
+    thickness_combined_png = os.path.join(save_dir, "thickness_distribution_evolution_combined.png")
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
+    thickness_fig.savefig(thickness_combined_png, dpi=300, bbox_inches="tight")
+    plt.close(thickness_fig)
+    print(f"Thickness overview plot saved to: {thickness_combined_png}")
 
     merged_epochs = [int(record["epoch"]) for record in merged_layers_distribution_history]
     merged_means = [float(record["mean_merged_layers"]) for record in merged_layers_distribution_history]
@@ -448,20 +458,6 @@ def save_distribution_evolution_plots(
     )
     merged_mean_csv = os.path.join(save_dir, "merged_layers_distribution_evolution_mean.csv")
     _save_dataframe(merged_mean_df, merged_mean_csv)
-
-    fig, ax = plt.subplots(figsize=(10, 6))
-    ax.plot(merged_epochs, merged_means, "b-", linewidth=2, marker="o", markersize=4)
-    ax.set_xlabel("Epoch")
-    ax.set_ylabel("Average Merged Layers")
-    ax.set_title("Average Merged Layers Evolution")
-    ax.grid(True, alpha=0.3)
-    ax.axhline(y=1, color="gray", linestyle="--", alpha=0.5, label="Min (1 layer)")
-    ax.axhline(y=max_layers, color="gray", linestyle="--", alpha=0.5, label=f"Max ({max_layers} layers)")
-    ax.legend(fontsize=9)
-    merged_mean_png = os.path.join(save_dir, "merged_layers_distribution_evolution_mean.png")
-    fig.savefig(merged_mean_png, dpi=300, bbox_inches="tight")
-    plt.close(fig)
-    print(f"Merged-layer mean evolution plot saved to: {merged_mean_png}")
 
     merged_matrix = np.asarray(
         [record["layer_counts"] for record in merged_layers_distribution_history],
@@ -483,39 +479,13 @@ def save_distribution_evolution_plots(
     merged_heatmap_csv = os.path.join(save_dir, "merged_layers_distribution_evolution_heatmap.csv")
     _save_dataframe(merged_heatmap_df, merged_heatmap_csv)
 
-    fig, ax = plt.subplots(figsize=(12, 6))
-    im = ax.imshow(merged_matrix, aspect="auto", cmap="Blues", origin="upper")
-    ax.set_xlabel("Number of Merged Layers")
-    ax.set_ylabel("Epoch")
-    ax.set_title("Merged Layers Distribution Heatmap")
-    ax.set_xticks(np.arange(len(layer_indices)))
-    ax.set_xticklabels(layer_indices)
-    y_positions, y_labels = _build_heatmap_epoch_ticks(merged_epochs, heatmap_epoch_tick_step)
-    ax.set_yticks(y_positions)
-    ax.set_yticklabels(y_labels)
-    plt.colorbar(im, ax=ax, label="Count")
-    merged_heatmap_png = os.path.join(save_dir, "merged_layers_distribution_evolution_heatmap.png")
-    fig.savefig(merged_heatmap_png, dpi=300, bbox_inches="tight")
-    plt.close(fig)
-    print(f"Merged-layer heatmap plot saved to: {merged_heatmap_png}")
-
     merged_comparison_rows = []
-    fig, ax = plt.subplots(figsize=(10, 6))
     colors = ["tab:blue", "tab:green", "tab:red"]
     comparison_indices = _select_snapshot_indices(len(merged_layers_distribution_history))
     width = 0.25
     for plot_index, snapshot_index in enumerate(comparison_indices):
         record = merged_layers_distribution_history[snapshot_index]
         offset = (plot_index - (len(comparison_indices) - 1) / 2) * width
-        positions = layer_indices + offset
-        ax.bar(
-            positions,
-            record["layer_counts"],
-            width=width,
-            alpha=0.7,
-            label=f"Epoch {record['epoch']}",
-            color=colors[plot_index % len(colors)],
-        )
         for layer_count, count in enumerate(record["layer_counts"], start=1):
             merged_comparison_rows.append(
                 {
@@ -524,19 +494,8 @@ def save_distribution_evolution_plots(
                     "count": int(count),
                 }
             )
-    ax.set_xlabel("Number of Merged Layers")
-    ax.set_ylabel("Count")
-    ax.set_title("Merged Layers Distribution Comparison")
-    ax.set_xticks(layer_indices)
-    ax.grid(True, alpha=0.3)
-    if comparison_indices:
-        ax.legend()
     merged_comparison_csv = os.path.join(save_dir, "merged_layers_distribution_evolution_comparison.csv")
     _save_dataframe(pd.DataFrame(merged_comparison_rows), merged_comparison_csv)
-    merged_comparison_png = os.path.join(save_dir, "merged_layers_distribution_evolution_comparison.png")
-    fig.savefig(merged_comparison_png, dpi=300, bbox_inches="tight")
-    plt.close(fig)
-    print(f"Merged-layer comparison plot saved to: {merged_comparison_png}")
 
     merged_entropies = []
     for record in merged_layers_distribution_history:
@@ -557,7 +516,33 @@ def save_distribution_evolution_plots(
     merged_entropy_csv = os.path.join(save_dir, "merged_layers_distribution_evolution_entropy.csv")
     _save_dataframe(merged_entropy_df, merged_entropy_csv)
 
-    fig, ax = plt.subplots(figsize=(10, 6))
+    # Render the four merged-layer views into a single 2x2 summary figure.
+    merged_fig, merged_axes = plt.subplots(2, 2, figsize=(18, 12))
+    merged_fig.suptitle("Merged Layers Distribution Evolution Overview", fontsize=16, fontweight="bold")
+
+    ax = merged_axes[0, 0]
+    ax.plot(merged_epochs, merged_means, "b-", linewidth=2, marker="o", markersize=4)
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel("Average Merged Layers")
+    ax.set_title("Average Merged Layers Evolution")
+    ax.grid(True, alpha=0.3)
+    ax.axhline(y=1, color="gray", linestyle="--", alpha=0.5, label="Min (1 layer)")
+    ax.axhline(y=max_layers, color="gray", linestyle="--", alpha=0.5, label=f"Max ({max_layers} layers)")
+    ax.legend(fontsize=9)
+
+    ax = merged_axes[0, 1]
+    im = ax.imshow(merged_matrix, aspect="auto", cmap="Blues", origin="upper")
+    ax.set_xlabel("Number of Merged Layers")
+    ax.set_ylabel("Epoch")
+    ax.set_title("Merged Layers Distribution Heatmap")
+    ax.set_xticks(np.arange(len(layer_indices)))
+    ax.set_xticklabels(layer_indices)
+    y_positions, y_labels = _build_heatmap_epoch_ticks(merged_epochs, heatmap_epoch_tick_step)
+    ax.set_yticks(y_positions)
+    ax.set_yticklabels(y_labels)
+    merged_fig.colorbar(im, ax=ax, label="Count")
+
+    ax = merged_axes[1, 0]
     ax.plot(merged_epochs, merged_entropies, "r-", linewidth=2, marker="s", markersize=4)
     ax.set_xlabel("Epoch")
     ax.set_ylabel("Entropy")
@@ -565,12 +550,41 @@ def save_distribution_evolution_plots(
     ax.grid(True, alpha=0.3)
     max_entropy = float(np.log(max(1, int(max_layers))))
     if max_layers > 1:
-        ax.axhline(y=max_entropy, color="gray", linestyle="--", alpha=0.5, label=f"Max entropy = {max_entropy:.2f}")
+        ax.axhline(
+            y=max_entropy,
+            color="gray",
+            linestyle="--",
+            alpha=0.5,
+            label=f"Max entropy = {max_entropy:.2f}",
+        )
         ax.legend(fontsize=9)
-    merged_entropy_png = os.path.join(save_dir, "merged_layers_distribution_evolution_entropy.png")
-    fig.savefig(merged_entropy_png, dpi=300, bbox_inches="tight")
-    plt.close(fig)
-    print(f"Merged-layer entropy plot saved to: {merged_entropy_png}")
+
+    ax = merged_axes[1, 1]
+    for plot_index, snapshot_index in enumerate(comparison_indices):
+        record = merged_layers_distribution_history[snapshot_index]
+        offset = (plot_index - (len(comparison_indices) - 1) / 2) * width
+        positions = layer_indices + offset
+        ax.bar(
+            positions,
+            record["layer_counts"],
+            width=width,
+            alpha=0.7,
+            label=f"Epoch {record['epoch']}",
+            color=colors[plot_index % len(colors)],
+        )
+    ax.set_xlabel("Number of Merged Layers")
+    ax.set_ylabel("Count")
+    ax.set_title("Merged Layers Distribution Comparison")
+    ax.set_xticks(layer_indices)
+    ax.grid(True, alpha=0.3)
+    if comparison_indices:
+        ax.legend()
+
+    merged_combined_png = os.path.join(save_dir, "merged_layers_distribution_evolution_combined.png")
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
+    merged_fig.savefig(merged_combined_png, dpi=300, bbox_inches="tight")
+    plt.close(merged_fig)
+    print(f"Merged-layer overview plot saved to: {merged_combined_png}")
 
     distribution_data = {
         "thickness_distribution": thickness_distribution_history,
