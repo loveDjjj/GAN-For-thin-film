@@ -9,4 +9,4 @@ scikit-learn
 pandas
 pillow
 h5py
-
+openpyxl
