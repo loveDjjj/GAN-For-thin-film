@@ -144,6 +144,7 @@ def train_gan(config_path, output_dir, device=None, load_parameters=None, setup_
     thickness_distribution_history = []
     merged_layers_distribution_history = []
     q_evaluation_dir = os.path.join(run_dir, "q_evaluation")
+    high_quality_solution_dir = os.path.join(run_dir, "high_quality_solutions")
     distribution_save_interval = max(
         1,
         int(getattr(params, "distribution_epoch_interval", max(1, params.epochs // 10))),
@@ -154,6 +155,7 @@ def train_gan(config_path, output_dir, device=None, load_parameters=None, setup_
         int(getattr(params, "heatmap_epoch_tick_step", distribution_save_interval)),
     )
     q_eval_interval = max(0, int(getattr(params, "q_eval_interval", 0)))
+    high_quality_collection_enabled = bool(getattr(params, "high_quality_collection_enabled", False))
 
     print(f"Starting training for {params.epochs} epochs...")
     print(f"Alpha schedule: {params.alpha_min} -> {params.alpha_max}")
@@ -162,6 +164,14 @@ def train_gan(config_path, output_dir, device=None, load_parameters=None, setup_
             "Q/MSE evaluation enabled: "
             f"every {q_eval_interval} epochs, {params.q_eval_num_samples} generated samples per evaluation"
         )
+    if high_quality_collection_enabled and q_eval_interval > 0:
+        print(
+            "High-quality solution collection enabled: "
+            f"Q>{params.high_quality_q_min}, MSE<{params.high_quality_mse_max}, "
+            f"peak>{params.high_quality_peak_min}, dominant_prob>{params.high_quality_dominant_prob_min}"
+        )
+    elif high_quality_collection_enabled and q_eval_interval == 0:
+        print("High-quality solution collection is enabled but q_evaluation.interval=0, so no samples will be scanned.")
     progress_bar = tqdm(range(params.epochs), desc="Training progress")
 
     for epoch in progress_bar:
@@ -303,6 +313,9 @@ def train_gan(config_path, output_dir, device=None, load_parameters=None, setup_
 
         latest_mean_q = q_evaluation_history[-1]["mean_q"] if q_evaluation_history else 0.0
         latest_mean_mse = q_evaluation_history[-1]["mean_mse"] if q_evaluation_history else 0.0
+        latest_high_quality_total = (
+            q_evaluation_history[-1]["total_high_quality_count"] if q_evaluation_history else 0
+        )
         if q_eval_interval > 0 and current_epoch % q_eval_interval == 0:
             q_summary = evaluate_generator_q(
                 generator,
@@ -311,14 +324,17 @@ def train_gan(config_path, output_dir, device=None, load_parameters=None, setup_
                 alpha,
                 epoch=current_epoch,
                 save_dir=q_evaluation_dir,
+                high_quality_dir=high_quality_solution_dir if high_quality_collection_enabled else None,
             )
             q_evaluation_history.append(q_summary)
             save_q_evaluation_history(q_evaluation_history, q_evaluation_dir)
             latest_mean_q = q_summary["mean_q"]
             latest_mean_mse = q_summary["mean_mse"]
+            latest_high_quality_total = q_summary["total_high_quality_count"]
             print(
                 f"[QEval] epoch={current_epoch} mean_q={q_summary['mean_q']:.4f} "
-                f"mean_mse={q_summary['mean_mse']:.6f} valid_ratio={q_summary['valid_ratio'] * 100:.2f}%"
+                f"mean_mse={q_summary['mean_mse']:.6f} valid_ratio={q_summary['valid_ratio'] * 100:.2f}% "
+                f"high_quality={q_summary['high_quality_count']} total_high_quality={q_summary['total_high_quality_count']}"
             )
 
         gp_last = gp_losses[-1] if gp_losses else 0.0
@@ -333,6 +349,7 @@ def train_gan(config_path, output_dir, device=None, load_parameters=None, setup_
                 "Layers": f"{mean_merged_layers:.1f}",
                 "AvgQ": f"{latest_mean_q:.2f}" if q_evaluation_history else "N/A",
                 "AvgMSE": f"{latest_mean_mse:.4e}" if q_evaluation_history else "N/A",
+                "HQ": latest_high_quality_total if q_evaluation_history else 0,
             }
         )
 

@@ -7,6 +7,12 @@ import pandas as pd
 import torch
 
 from model.TMM.optical_calculator import calculate_reflection
+from train.high_quality_solution_collector import (
+    build_high_quality_criteria,
+    collect_high_quality_solutions_batch,
+    initialize_high_quality_collection,
+    update_high_quality_collection_summary,
+)
 
 
 def _safe_delta(delta, eps):
@@ -301,15 +307,20 @@ def save_q_evaluation_history(history, save_dir):
     print(f"Q/MSE evaluation summary plot saved to: {plot_path}")
 
 
-def evaluate_generator_q(generator, params, device, alpha, epoch, save_dir):
+def evaluate_generator_q(generator, params, device, alpha, epoch, save_dir, high_quality_dir=None):
     """Generate samples in batches, compute Q and MSE in parallel, and save summary artifacts."""
     num_samples = max(1, int(getattr(params, "q_eval_num_samples", 1000)))
     batch_size = max(1, min(int(getattr(params, "batch_size", num_samples)), num_samples))
     wavelengths = (2 * torch.pi / params.k.to(device)).float()
+    high_quality_criteria = build_high_quality_criteria(params)
 
     collected_results = []
+    high_quality_records = []
     generator_was_training = generator.training
     generator.eval()
+
+    if high_quality_criteria["enabled"] and high_quality_dir is not None:
+        initialize_high_quality_collection(high_quality_dir, high_quality_criteria)
 
     with torch.no_grad():
         for start in range(0, num_samples, batch_size):
@@ -317,18 +328,33 @@ def evaluate_generator_q(generator, params, device, alpha, epoch, save_dir):
             thickness_noise = torch.randn(current_batch, params.thickness_noise_dim, device=device)
             material_noise = torch.randn(current_batch, params.material_noise_dim, device=device)
 
-            thicknesses, refractive_indices, _ = generator(thickness_noise, material_noise, alpha)
+            thicknesses, refractive_indices, material_probabilities = generator(thickness_noise, material_noise, alpha)
             reflection = calculate_reflection(thicknesses, refractive_indices, params, device)
             reflection = torch.nan_to_num(reflection, nan=1.0, posinf=1.0, neginf=1.0)
             absorption = (1 - reflection).float()
 
-            collected_results.append(
-                compute_q_mse_metrics_torch(
-                    wavelengths,
-                    absorption,
-                    lorentz_width=float(getattr(params, "lorentz_width", 0.02)),
-                )
+            batch_results = compute_q_mse_metrics_torch(
+                wavelengths,
+                absorption,
+                lorentz_width=float(getattr(params, "lorentz_width", 0.02)),
             )
+            collected_results.append(batch_results)
+
+            if high_quality_criteria["enabled"] and high_quality_dir is not None:
+                high_quality_records.extend(
+                    collect_high_quality_solutions_batch(
+                        wavelengths=wavelengths,
+                        absorption_spectra=absorption,
+                        thicknesses=thicknesses,
+                        material_probabilities=material_probabilities,
+                        q_mse_results=batch_results,
+                        params=params,
+                        epoch=epoch,
+                        alpha=alpha,
+                        sample_offset=start,
+                        save_dir=high_quality_dir,
+                    )
+                )
 
     if generator_was_training:
         generator.train()
@@ -344,5 +370,11 @@ def evaluate_generator_q(generator, params, device, alpha, epoch, save_dir):
         num_samples=num_samples,
         lorentz_width=float(getattr(params, "lorentz_width", 0.02)),
     )
+    collection_summary = {"new_high_quality_count": 0, "total_high_quality_count": 0}
+    if high_quality_criteria["enabled"] and high_quality_dir is not None:
+        collection_summary = update_high_quality_collection_summary(high_quality_dir, high_quality_records)
+
+    summary["high_quality_count"] = int(collection_summary["new_high_quality_count"])
+    summary["total_high_quality_count"] = int(collection_summary["total_high_quality_count"])
     save_q_evaluation_epoch(merged_results, summary, save_dir)
     return summary

@@ -147,6 +147,19 @@ def update_params(params, config):
             },
         )
 
+    if "high_quality_collection" in config:
+        _update_from_mapping(
+            params,
+            config["high_quality_collection"],
+            {
+                "enabled": "high_quality_collection_enabled",
+                "q_min": "high_quality_q_min",
+                "mse_max": "high_quality_mse_max",
+                "peak_min": "high_quality_peak_min",
+                "dominant_material_prob_min": "high_quality_dominant_prob_min",
+            },
+        )
+
     params.user_define = False
     return params
 

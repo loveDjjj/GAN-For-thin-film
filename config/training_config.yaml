@@ -58,3 +58,10 @@ visualization:
 q_evaluation:
   interval: 5                    # 每隔多少个 epoch 进行一次大规模 Q/MSE 评估；设置为 0 可关闭
   num_samples: 1024               # 每次评估生成的样本数；每个样本都会统计 Q 值和峰值对齐 Lorentzian MSE
+
+high_quality_collection:
+  enabled: true                   # 是否在每次 q_evaluation 时筛选并保存优质解；复用 q_evaluation 的采样周期和样本数，避免重复生成和重复 TMM 计算
+  q_min: 200.0                    # 优质解阈值 1：Q 值必须大于该值
+  mse_max: 0.0025                 # 优质解阈值 2：峰值对齐 Lorentzian MSE 必须小于该值
+  peak_min: 0.9                   # 优质解阈值 3：吸收谱最高峰值必须大于该值
+  dominant_material_prob_min: 0.99 # 优质解阈值 4：每一层主材料的概率都必须大于该值

@@ -115,6 +115,15 @@ def load_parameters(config_path, device):
     params.q_eval_interval = max(0, int(q_evaluation.get("interval", 0)))
     params.q_eval_num_samples = max(1, int(q_evaluation.get("num_samples", 1000)))
 
+    high_quality_collection = config.get("high_quality_collection", {})
+    params.high_quality_collection_enabled = bool(high_quality_collection.get("enabled", False))
+    params.high_quality_q_min = float(high_quality_collection.get("q_min", 200.0))
+    params.high_quality_mse_max = float(high_quality_collection.get("mse_max", 0.0025))
+    params.high_quality_peak_min = float(high_quality_collection.get("peak_min", 0.9))
+    params.high_quality_dominant_prob_min = float(
+        high_quality_collection.get("dominant_material_prob_min", 0.99)
+    )
+
     params.user_define = False
     print(f"Configuration loaded from {config_path}")
 
@@ -155,6 +164,14 @@ def load_parameters(config_path, device):
         f"interval={params.q_eval_interval}, "
         f"num_samples={params.q_eval_num_samples}, "
         f"lorentz_width={params.lorentz_width}"
+    )
+    print(
+        "High-quality collection parameters: "
+        f"enabled={params.high_quality_collection_enabled}, "
+        f"q_min={params.high_quality_q_min}, "
+        f"mse_max={params.high_quality_mse_max}, "
+        f"peak_min={params.high_quality_peak_min}, "
+        f"dominant_material_prob_min={params.high_quality_dominant_prob_min}"
     )
 
     return params
