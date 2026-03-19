@@ -1,9 +1,18 @@
 import os
+
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
+
 import torch
 
 
-def generate_lorentzian_curves(wavelengths, batch_size=None, width=0.05, center=None, center_range=None):
+def generate_lorentzian_curves(
+    wavelengths,
+    batch_size=None,
+    width=0.05,
+    center=None,
+    center_range=None,
+    centers=None,
+):
     """
     生成洛伦兹曲线作为真实吸收率曲线
 
@@ -16,6 +25,7 @@ def generate_lorentzian_curves(wavelengths, batch_size=None, width=0.05, center=
         batch_size: 批次大小（随机中心模式）
         width: 洛伦兹曲线带宽（微米）
         center: 指定的中心波长（微米，指定中心模式）
+        centers: 指定的一组中心波长，[batch_size]，用于固定样本池模式
 
     Returns:
         洛伦兹曲线张量 [batch_size, len(wavelengths)] 或 [len(wavelengths)]
@@ -35,7 +45,7 @@ def generate_lorentzian_curves(wavelengths, batch_size=None, width=0.05, center=
 
     device = wavelengths.device
 
-    # 指定中心模式
+    # 指定单个中心模式
     if center is not None:
         gamma = torch.tensor(width, dtype=torch.float32, device=device)
         center_tensor = torch.tensor(center, dtype=torch.float32, device=device)
@@ -50,13 +60,23 @@ def generate_lorentzian_curves(wavelengths, batch_size=None, width=0.05, center=
 
         return curve
 
+    # 指定一组中心模式
+    if centers is not None:
+        centers = torch.as_tensor(centers, dtype=torch.float32, device=device).flatten()
+        if centers.numel() == 0:
+            raise ValueError("centers must not be empty")
+
+        gamma = torch.tensor(width, dtype=torch.float32, device=device)
+        curves = (gamma / 2) / ((wavelengths.unsqueeze(0) - centers.unsqueeze(1)) ** 2 + (gamma / 2) ** 2)
+        max_values = curves.max(dim=1, keepdim=True).values
+        curves = torch.where(max_values > 0, curves / max_values, curves)
+        return curves
+
     # 随机中心模式
     if batch_size is None:
-        raise ValueError("必须指定batch_size（随机中心模式）或center（指定中心模式）")
+        raise ValueError("必须指定batch_size（随机中心模式）或center/centers（指定中心模式）")
 
     # 创建一个批次的洛伦兹曲线
-    curves = torch.zeros(batch_size, len(wavelengths), dtype=torch.float32, device=device)
-
     # 从输入的wavelengths获取波长范围
     wave_min = wavelengths.min().item()
     wave_max = wavelengths.max().item()
@@ -78,19 +98,5 @@ def generate_lorentzian_curves(wavelengths, batch_size=None, width=0.05, center=
     else:
         center_min, center_max = default_min, default_max
 
-    centers = torch.FloatTensor(batch_size).uniform_(center_min, center_max).to(device)
-
-    # 计算每个样本的洛伦兹曲线
-    for i in range(batch_size):
-        center_i = centers[i]
-        # 洛伦兹分布公式: L(x) = (1/π) * (γ/2) / ((x - x₀)² + (γ/2)²)
-        # 其中γ是带宽，x₀是中心位置
-        gamma = torch.tensor(width, dtype=torch.float32, device=device)
-        curves[i] = (gamma/2) / ((wavelengths - center_i)**2 + (gamma/2)**2)
-
-        # 标准化曲线，最大值为1
-        max_val = torch.max(curves[i])
-        if max_val > 0:
-            curves[i] = curves[i] / max_val
-
-    return curves
+    sampled_centers = torch.empty(batch_size, dtype=torch.float32, device=device).uniform_(center_min, center_max)
+    return generate_lorentzian_curves(wavelengths, width=width, centers=sampled_centers)

@@ -160,6 +160,18 @@ def update_params(params, config):
             },
         )
 
+    if "reproducibility" in config:
+        _update_from_mapping(
+            params,
+            config["reproducibility"],
+            {
+                "seed": "seed",
+                "fix_training_target_centers": "fix_training_target_centers",
+                "center_pool_size": "center_pool_size",
+                "fix_q_evaluation_noise": "fix_q_evaluation_noise",
+            },
+        )
+
     params.user_define = False
     return params
 

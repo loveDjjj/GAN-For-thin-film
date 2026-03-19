@@ -32,13 +32,13 @@ generator:
   alpha_max: 5                    # 训练结束时的 softmax 温度
 
 training:
-  epochs: 300                     # 总训练 epoch 数
+  epochs: 100                       # 总训练 full-pool epoch 数；当前配置下 1 个 epoch 会完整遍历 65536 个固定 center（共 128 个 batch）
   batch_size: 512                 # 训练批大小；训练期 Q/MSE 评估也默认按该批大小分批生成
-  save_interval: 10               # 每隔多少个 epoch 保存 checkpoint 和训练样本
+  save_interval: 1                # 每隔多少个 full-pool epoch 保存 checkpoint 和训练样本；从旧 outer-step 语义切到 full-pool epoch 后改为 1
   noise_level: 0.005              # 判别器输入噪声幅度，用于稳定 GAN 训练
   lambda_gp: 3.0                  # 梯度惩罚权重
-  d_steps: 1                      # 每个 epoch 中判别器更新次数
-  g_steps: 2                      # 每个 epoch 中生成器更新次数
+  d_steps: 1                      # 每个训练 batch 的判别器更新次数；一个 full-pool epoch 内会对所有 batch 都执行该比例
+  g_steps: 2                      # 每个训练 batch 的生成器更新次数；一个 full-pool epoch 内会对所有 batch 都执行该比例
 
 optimizer:
   lr_gen: 0.001                   # 生成器学习率
@@ -52,11 +52,11 @@ visualization:
   sample_export_count: 4          # 每次导出的样本条目数
   material_analysis_batch_size: 256 # 材料概率分析时的采样批大小
   thickness_histogram_bins: 20    # 厚度直方图的 bin 数
-  distribution_epoch_interval: 5 # 统计厚度/层数分布的 epoch 间隔
-  heatmap_epoch_tick_step: 5     # 分布热力图 y 轴刻度步长
+  distribution_epoch_interval: 2 # 统计厚度/层数分布的 epoch 间隔
+  heatmap_epoch_tick_step: 2     # 分布热力图 y 轴刻度步长
 
 q_evaluation:
-  interval: 5                    # 每隔多少个 epoch 进行一次大规模 Q/MSE 评估；设置为 0 可关闭
+  interval: 1                    # 每隔多少个 full-pool epoch 进行一次大规模 Q/MSE 评估；从旧 outer-step 语义切到 full-pool epoch 后改为 1
   num_samples: 1024               # 每次评估生成的样本数；每个样本都会统计 Q 值和峰值对齐 Lorentzian MSE
 
 high_quality_collection:
@@ -65,3 +65,9 @@ high_quality_collection:
   mse_max: 0.0025                 # 优质解阈值 2：峰值对齐 Lorentzian MSE 必须小于该值
   peak_min: 0.9                   # 优质解阈值 3：吸收谱最高峰值必须大于该值
   dominant_material_prob_min: 0.99 # 优质解阈值 4：每一层主材料的概率都必须大于该值
+
+reproducibility:
+  seed: 20260319                  # 全局随机种子；用于模型初始化、训练噪声、梯度惩罚噪声等所有未单独指定的随机过程
+  fix_training_target_centers: true # 是否预生成并保存一组固定 Lorentzian center 列表；开启后每个 epoch 都会基于 seed+epoch 做一次确定性打乱，再按该顺序切 batch
+  center_pool_size: 4096         # 固定 center 列表长度；当前配置下约等于 128 个训练 batch 的 center 容量，单个 epoch 实际取用量由 d_steps * batch_size 决定
+  fix_q_evaluation_noise: true    # 是否固定 q_evaluation 的噪声池；开启后每次评估都用同一批 latent 样本，便于横向比较 epoch 结果

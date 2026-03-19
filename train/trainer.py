@@ -11,6 +11,7 @@ from model.net import Discriminator, Generator
 from model.TMM.optical_calculator import calculate_reflection
 from train.q_evaluator import evaluate_generator_q, save_q_evaluation_history
 from train.sample_saver import calculate_entropy, save_sample
+from utils.reproducibility import prepare_reproducibility_assets, set_global_seed
 from utils.visualize import (
     save_alpha_entropy_curves,
     save_distribution_evolution_plots,
@@ -26,6 +27,7 @@ def configure_numerics():
     """Stabilize numerics across GPUs."""
     torch.backends.cuda.matmul.allow_tf32 = False
     torch.backends.cudnn.allow_tf32 = False
+    torch.backends.cudnn.deterministic = True
     try:
         torch.set_float32_matmul_precision("highest")
     except Exception:
@@ -113,6 +115,12 @@ def train_gan(config_path, output_dir, device=None, load_parameters=None, setup_
 
     run_dir, model_dir, samples_dir = setup_directories(output_dir)
     params = load_parameters(config_path, device)
+    set_global_seed(getattr(params, "seed", 0))
+    reproducibility_assets = prepare_reproducibility_assets(params, run_dir)
+    params.training_target_center_pool = reproducibility_assets.get("training_target_center_pool")
+    params.fixed_q_eval_thickness_noise = reproducibility_assets.get("q_eval_thickness_noise")
+    params.fixed_q_eval_material_noise = reproducibility_assets.get("q_eval_material_noise")
+    params.reproducibility_dir = reproducibility_assets.get("reproducibility_dir")
     generator, discriminator = initialize_models(params, device)
 
     g_optimizer = torch.optim.Adam(
@@ -156,14 +164,34 @@ def train_gan(config_path, output_dir, device=None, load_parameters=None, setup_
     )
     q_eval_interval = max(0, int(getattr(params, "q_eval_interval", 0)))
     high_quality_collection_enabled = bool(getattr(params, "high_quality_collection_enabled", False))
+    train_center_pool = getattr(params, "training_target_center_pool", None)
+    train_center_pool_size = int(getattr(params, "train_center_pool_size", 0))
+    if train_center_pool is not None and train_center_pool_size <= 0:
+        train_center_pool_size = int(train_center_pool.values.numel())
+        params.train_center_pool_size = train_center_pool_size
+    train_batches_per_epoch = int(getattr(params, "train_batches_per_epoch", 1))
+    if train_center_pool is not None and train_center_pool_size > 0:
+        train_batches_per_epoch = max(1, int(np.ceil(train_center_pool_size / params.batch_size)))
+        params.train_batches_per_epoch = train_batches_per_epoch
 
     print(f"Starting training for {params.epochs} epochs...")
     print(f"Alpha schedule: {params.alpha_min} -> {params.alpha_max}")
+    print(
+        "Full-pool epoch schedule: "
+        f"{train_batches_per_epoch} training batches per epoch, "
+        f"{train_center_pool_size if train_center_pool is not None else params.batch_size} target samples per epoch"
+    )
     if q_eval_interval > 0:
         print(
             "Q/MSE evaluation enabled: "
             f"every {q_eval_interval} epochs, {params.q_eval_num_samples} generated samples per evaluation"
         )
+    print(
+        "Reproducibility: "
+        f"seed={params.seed}, "
+        f"fixed_training_target_centers={params.fix_training_target_centers}, "
+        f"fixed_q_evaluation_noise={params.fix_q_evaluation_noise}"
+    )
     if high_quality_collection_enabled and q_eval_interval > 0:
         print(
             "High-quality solution collection enabled: "
@@ -177,94 +205,118 @@ def train_gan(config_path, output_dir, device=None, load_parameters=None, setup_
     for epoch in progress_bar:
         generator.train()
         discriminator.train()
+        if train_center_pool is not None:
+            train_center_pool.set_epoch(epoch)
 
         alpha = params.alpha_min + (params.alpha_max - params.alpha_min) * (epoch / max(params.epochs - 1, 1))
+        epoch_g_losses = []
+        epoch_d_losses = []
+        epoch_gp_losses = []
+        epoch_d_real_scores = []
+        epoch_d_fake_scores = []
 
-        d_loss = None
-        g_loss = None
-        d_real = None
-        d_fake = None
+        for batch_index in range(train_batches_per_epoch):
+            current_batch_size = params.batch_size
+            if train_center_pool is not None and train_center_pool_size > 0:
+                consumed = batch_index * params.batch_size
+                remaining = train_center_pool_size - consumed
+                if remaining <= 0:
+                    break
+                current_batch_size = min(params.batch_size, remaining)
+                center_batch = train_center_pool.next_batch(
+                    current_batch_size,
+                    device=device,
+                    dtype=wavelengths.dtype,
+                )
+                real_absorption = generate_lorentzian_curves(
+                    wavelengths,
+                    width=params.lorentz_width,
+                    centers=center_batch,
+                ).float()
+            else:
+                real_absorption = generate_lorentzian_curves(
+                    wavelengths,
+                    batch_size=current_batch_size,
+                    width=params.lorentz_width,
+                    center_range=params.lorentz_center_range,
+                ).float()
 
-        for _ in range(max(1, params.d_steps)):
-            thickness_noise = torch.randn(params.batch_size, params.thickness_noise_dim, device=device)
-            material_noise = torch.randn(params.batch_size, params.material_noise_dim, device=device)
+            for _ in range(max(1, params.d_steps)):
+                thickness_noise = torch.randn(current_batch_size, params.thickness_noise_dim, device=device)
+                material_noise = torch.randn(current_batch_size, params.material_noise_dim, device=device)
 
-            real_absorption = generate_lorentzian_curves(
-                wavelengths,
-                batch_size=params.batch_size,
-                width=params.lorentz_width,
-                center_range=params.lorentz_center_range,
-            ).float()
+                d_optimizer.zero_grad()
 
-            d_optimizer.zero_grad()
+                thicknesses, refractive_indices, _ = generator(thickness_noise, material_noise, alpha)
+                reflection = calculate_reflection(thicknesses, refractive_indices, params, device)
+                if not torch.isfinite(reflection).all():
+                    print("[NaNGuard] reflection non-finite; skip this discriminator step")
+                    continue
 
-            thicknesses, refractive_indices, _ = generator(thickness_noise, material_noise, alpha)
-            reflection = calculate_reflection(thicknesses, refractive_indices, params, device)
-            if not torch.isfinite(reflection).all():
-                print("[NaNGuard] reflection non-finite; skip this discriminator step")
-                continue
+                fake_absorption = (1 - reflection).float()
 
-            fake_absorption = (1 - reflection).float()
+                noisy_real = add_noise(real_absorption, params.noise_level)
+                noisy_fake = add_noise(fake_absorption.detach(), params.noise_level)
 
-            noisy_real = add_noise(real_absorption, params.noise_level)
-            noisy_fake = add_noise(fake_absorption.detach(), params.noise_level)
+                d_real = discriminator(noisy_real)
+                d_fake = discriminator(noisy_fake)
 
-            d_real = discriminator(noisy_real)
-            d_fake = discriminator(noisy_fake)
+                d_loss_real = F.binary_cross_entropy_with_logits(d_real, torch.ones_like(d_real))
+                d_loss_fake = F.binary_cross_entropy_with_logits(d_fake, torch.zeros_like(d_fake))
+                gradient_penalty = compute_gradient_penalty(discriminator, real_absorption, fake_absorption.detach())
+                d_loss = d_loss_real + d_loss_fake + params.lambda_gp * gradient_penalty
 
-            d_loss_real = F.binary_cross_entropy_with_logits(d_real, torch.ones_like(d_real))
-            d_loss_fake = F.binary_cross_entropy_with_logits(d_fake, torch.zeros_like(d_fake))
-            gradient_penalty = compute_gradient_penalty(discriminator, real_absorption, fake_absorption.detach())
-            d_loss = d_loss_real + d_loss_fake + params.lambda_gp * gradient_penalty
+                if not torch.isfinite(d_loss):
+                    print("[NaNGuard] d_loss is non-finite; skip this discriminator step")
+                    continue
 
-            if not torch.isfinite(d_loss):
-                print("[NaNGuard] d_loss is non-finite; skip this discriminator step")
-                continue
+                d_loss.backward()
+                torch.nn.utils.clip_grad_norm_(discriminator.parameters(), 5.0)
+                d_optimizer.step()
 
-            d_loss.backward()
-            torch.nn.utils.clip_grad_norm_(discriminator.parameters(), 5.0)
-            d_optimizer.step()
+                epoch_d_losses.append(d_loss.item())
+                epoch_gp_losses.append(params.lambda_gp * gradient_penalty.item())
+                epoch_d_real_scores.append(torch.sigmoid(d_real.mean()).item())
+                epoch_d_fake_scores.append(torch.sigmoid(d_fake.mean()).item())
 
-            gp_losses.append(params.lambda_gp * gradient_penalty.item())
+            for _ in range(max(1, params.g_steps)):
+                thickness_noise = torch.randn(current_batch_size, params.thickness_noise_dim, device=device)
+                material_noise = torch.randn(current_batch_size, params.material_noise_dim, device=device)
 
-        for _ in range(max(1, params.g_steps)):
-            thickness_noise = torch.randn(params.batch_size, params.thickness_noise_dim, device=device)
-            material_noise = torch.randn(params.batch_size, params.material_noise_dim, device=device)
+                g_optimizer.zero_grad()
 
-            g_optimizer.zero_grad()
+                thicknesses, refractive_indices, _ = generator(thickness_noise, material_noise, alpha)
+                reflection = calculate_reflection(thicknesses, refractive_indices, params, device)
+                if not torch.isfinite(reflection).all():
+                    print("[NaNGuard] reflection non-finite; skip this generator step")
+                    continue
 
-            thicknesses, refractive_indices, _ = generator(thickness_noise, material_noise, alpha)
-            reflection = calculate_reflection(thicknesses, refractive_indices, params, device)
-            if not torch.isfinite(reflection).all():
-                print("[NaNGuard] reflection non-finite; skip this generator step")
-                continue
+                fake_absorption = (1 - reflection).float()
+                noisy_fake = add_noise(fake_absorption, params.noise_level)
+                d_fake = discriminator(noisy_fake)
+                g_loss = F.binary_cross_entropy_with_logits(d_fake, torch.ones_like(d_fake))
 
-            fake_absorption = (1 - reflection).float()
-            noisy_fake = add_noise(fake_absorption, params.noise_level)
-            d_fake = discriminator(noisy_fake)
-            g_loss = F.binary_cross_entropy_with_logits(d_fake, torch.ones_like(d_fake))
+                if not torch.isfinite(g_loss):
+                    print("[NaNGuard] g_loss is non-finite; skip this generator step")
+                    continue
 
-            if not torch.isfinite(g_loss):
-                print("[NaNGuard] g_loss is non-finite; skip this generator step")
-                continue
+                g_loss.backward()
+                torch.nn.utils.clip_grad_norm_(generator.parameters(), 5.0)
+                g_optimizer.step()
 
-            g_loss.backward()
-            torch.nn.utils.clip_grad_norm_(generator.parameters(), 5.0)
-            g_optimizer.step()
+                epoch_g_losses.append(g_loss.item())
 
-        if g_loss is None:
-            g_loss = torch.tensor(0.0, device=device)
-        if d_loss is None:
-            d_loss = torch.tensor(0.0, device=device)
-        if d_real is None:
-            d_real = torch.zeros(1, device=device)
-        if d_fake is None:
-            d_fake = torch.zeros(1, device=device)
+        g_loss_value = float(np.mean(epoch_g_losses)) if epoch_g_losses else 0.0
+        d_loss_value = float(np.mean(epoch_d_losses)) if epoch_d_losses else 0.0
+        d_real_score_value = float(np.mean(epoch_d_real_scores)) if epoch_d_real_scores else 0.0
+        d_fake_score_value = float(np.mean(epoch_d_fake_scores)) if epoch_d_fake_scores else 0.0
+        gp_mean_value = float(np.mean(epoch_gp_losses)) if epoch_gp_losses else 0.0
 
-        g_losses.append(g_loss.item())
-        d_losses.append(d_loss.item())
-        d_real_scores.append(torch.sigmoid(d_real.mean()).item())
-        d_fake_scores.append(torch.sigmoid(d_fake.mean()).item())
+        g_losses.append(g_loss_value)
+        d_losses.append(d_loss_value)
+        gp_losses.append(gp_mean_value)
+        d_real_scores.append(d_real_score_value)
+        d_fake_scores.append(d_fake_score_value)
 
         alpha_history.append(alpha)
         current_epoch = epoch + 1
@@ -340,11 +392,11 @@ def train_gan(config_path, output_dir, device=None, load_parameters=None, setup_
         gp_last = gp_losses[-1] if gp_losses else 0.0
         progress_bar.set_postfix(
             {
-                "G_Loss": f"{g_loss.item():.4f}",
-                "D_Loss": f"{d_loss.item():.4f}",
+                "G_Loss": f"{g_loss_value:.4f}",
+                "D_Loss": f"{d_loss_value:.4f}",
                 "GP": f"{gp_last:.4f}",
-                "D(real)": f"{torch.sigmoid(d_real.mean()).item():.2f}",
-                "D(fake)": f"{torch.sigmoid(d_fake.mean()).item():.2f}",
+                "D(real)": f"{d_real_score_value:.2f}",
+                "D(fake)": f"{d_fake_score_value:.2f}",
                 "Thick": f"{mean_thickness:.3f}",
                 "Layers": f"{mean_merged_layers:.1f}",
                 "AvgQ": f"{latest_mean_q:.2f}" if q_evaluation_history else "N/A",

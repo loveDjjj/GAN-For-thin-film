@@ -21,6 +21,8 @@ train/
   q_evaluator.py
   high_quality_solution_collector.py
   sample_saver.py
+utils/
+  reproducibility.py
 inference/
   inferer.py
   filtering.py
@@ -39,6 +41,8 @@ requirements.txt
 - `train/trainer.py`：GAN 训练主循环，调用 Lorentzian 目标谱和 TMM 反射率计算。
 - `train/q_evaluator.py`：训练期大规模生成样本，批量计算每个样本的 Q 值和峰值对齐 Lorentzian MSE，并输出统计结果。
 - `train/high_quality_solution_collector.py`：按 Q、MSE、峰值和材料概率阈值筛选优质解，保存光谱、结构 JSON 和汇总统计图。
+- `utils/reproducibility.py`：设置全局 seed，生成固定训练 center 池和固定评估噪声池。
+- `utils/reproducibility.py`：设置全局 seed，生成固定训练 center 池并在每个 epoch 做确定性 shuffle，同时生成固定评估噪声池。
 - `infer.py`：推理入口，先读 `config/inference_config.yaml`，再允许 CLI 覆盖同名参数。
 - `inference/inferer.py`：批量生成样本、按目标谱筛选 best samples、计算 Pareto front 和 Q-factor。
 - `model/net.py`：生成器与判别器定义。
@@ -94,11 +98,12 @@ python analyze_gan_samoples.py --model_path <generator_final.pth> --config_path 
 ## 配置说明
 
 - `config/training_config.yaml`
-  - 分组：`structure`、`materials`、`optics`、`generator`、`training`、`optimizer`、`visualization`、`q_evaluation`、`high_quality_collection`
+  - 分组：`structure`、`materials`、`optics`、`generator`、`training`、`optimizer`、`visualization`、`q_evaluation`、`high_quality_collection`、`reproducibility`
 - `config/inference_config.yaml`
   - 关键字段：`model_path`、`config_path`、`output_dir`、`num_samples`、`infer_batch_size`、`alpha`、`target_center`、`target_width`、`center_region`、`weight_factor`、`best_samples`、`q_eval_window`
 
 当前仓库未发现更复杂的配置继承系统，主要是 YAML 加载加 CLI 覆盖。
+训练目前采用 full-pool epoch 语义：若启用固定训练 center 池，则一个 epoch 会完整遍历该池的全部 batch，`save_interval` 和 `q_evaluation.interval` 也按 full-pool epoch 计数。
 
 ## 输出说明
 
@@ -107,6 +112,7 @@ python analyze_gan_samoples.py --model_path <generator_final.pth> --config_path 
   - 分布图：`thickness_distribution_evolution_combined.png`、`merged_layers_distribution_evolution_combined.png`
   - Q/MSE 评估：`q_evaluation/`、`q_mse_evaluation_summary.csv`、`q_mse_evaluation_curves.png`、`q_mse_metrics_epoch_*.csv`
   - 优质解收集：`high_quality_solutions/`、`summary/high_quality_solutions.csv`、`summary/high_quality_solution_distributions.png`、`epoch_*/epoch_*_sample_*/`
+  - 可复现资产：`reproducibility/`、`training_target_center_pool.csv`、`q_eval_thickness_noise.pt`、`q_eval_material_noise.pt`
 - 推理输出：`generated_samples/best_samples_YYYYMMDD_HHMMSS/`
   - 典型内容：`best_sample_*_absorption.xlsx`、`best_sample_*_structure.txt`、`best_samples_q.txt`、`pareto_front/`
 - 其他脚本输出：

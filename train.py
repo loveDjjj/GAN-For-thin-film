@@ -124,6 +124,21 @@ def load_parameters(config_path, device):
         high_quality_collection.get("dominant_material_prob_min", 0.99)
     )
 
+    reproducibility = config.get("reproducibility", {})
+    params.seed = int(reproducibility.get("seed", 20260319))
+    params.fix_training_target_centers = bool(reproducibility.get("fix_training_target_centers", True))
+    params.center_pool_size = max(
+        1,
+        int(reproducibility.get("center_pool_size", max(params.batch_size * 128, params.q_eval_num_samples))),
+    )
+    params.fix_q_evaluation_noise = bool(reproducibility.get("fix_q_evaluation_noise", True))
+    params.train_center_pool_size = params.center_pool_size if params.fix_training_target_centers else 0
+    params.train_batches_per_epoch = (
+        max(1, int(np.ceil(params.train_center_pool_size / params.batch_size)))
+        if params.train_center_pool_size > 0
+        else 1
+    )
+
     params.user_define = False
     print(f"Configuration loaded from {config_path}")
 
@@ -172,6 +187,19 @@ def load_parameters(config_path, device):
         f"mse_max={params.high_quality_mse_max}, "
         f"peak_min={params.high_quality_peak_min}, "
         f"dominant_material_prob_min={params.high_quality_dominant_prob_min}"
+    )
+    print(
+        "Reproducibility parameters: "
+        f"seed={params.seed}, "
+        f"fix_training_target_centers={params.fix_training_target_centers}, "
+        f"center_pool_size={params.center_pool_size}, "
+        f"fix_q_evaluation_noise={params.fix_q_evaluation_noise}"
+    )
+    print(
+        "Full-pool epoch parameters: "
+        f"train_center_pool_size={params.train_center_pool_size}, "
+        f"train_batches_per_epoch={params.train_batches_per_epoch}, "
+        f"train_batch_size={params.batch_size}"
     )
 
     return params

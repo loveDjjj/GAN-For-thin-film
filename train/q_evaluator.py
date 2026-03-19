@@ -313,6 +313,8 @@ def evaluate_generator_q(generator, params, device, alpha, epoch, save_dir, high
     batch_size = max(1, min(int(getattr(params, "batch_size", num_samples)), num_samples))
     wavelengths = (2 * torch.pi / params.k.to(device)).float()
     high_quality_criteria = build_high_quality_criteria(params)
+    fixed_thickness_noise = getattr(params, "fixed_q_eval_thickness_noise", None)
+    fixed_material_noise = getattr(params, "fixed_q_eval_material_noise", None)
 
     collected_results = []
     high_quality_records = []
@@ -325,8 +327,12 @@ def evaluate_generator_q(generator, params, device, alpha, epoch, save_dir, high
     with torch.no_grad():
         for start in range(0, num_samples, batch_size):
             current_batch = min(batch_size, num_samples - start)
-            thickness_noise = torch.randn(current_batch, params.thickness_noise_dim, device=device)
-            material_noise = torch.randn(current_batch, params.material_noise_dim, device=device)
+            if fixed_thickness_noise is not None and fixed_material_noise is not None:
+                thickness_noise = fixed_thickness_noise[start : start + current_batch].to(device=device)
+                material_noise = fixed_material_noise[start : start + current_batch].to(device=device)
+            else:
+                thickness_noise = torch.randn(current_batch, params.thickness_noise_dim, device=device)
+                material_noise = torch.randn(current_batch, params.material_noise_dim, device=device)
 
             thicknesses, refractive_indices, material_probabilities = generator(thickness_noise, material_noise, alpha)
             reflection = calculate_reflection(thicknesses, refractive_indices, params, device)
