@@ -32,7 +32,7 @@ generator:
   alpha_max: 5                    # 训练结束时的 softmax 温度
 
 training:
-  epochs: 100                     # 总训练 epoch 数
+  epochs: 300                     # 总训练 epoch 数
   batch_size: 512                 # 训练批大小；训练期 Q/MSE 评估也默认按该批大小分批生成
   save_interval: 10               # 每隔多少个 epoch 保存 checkpoint 和训练样本
   noise_level: 0.005              # 判别器输入噪声幅度，用于稳定 GAN 训练
@@ -52,9 +52,9 @@ visualization:
   sample_export_count: 4          # 每次导出的样本条目数
   material_analysis_batch_size: 256 # 材料概率分析时的采样批大小
   thickness_histogram_bins: 20    # 厚度直方图的 bin 数
-  distribution_epoch_interval: 2 # 统计厚度/层数分布的 epoch 间隔
-  heatmap_epoch_tick_step: 2     # 分布热力图 y 轴刻度步长
+  distribution_epoch_interval: 5 # 统计厚度/层数分布的 epoch 间隔
+  heatmap_epoch_tick_step: 5     # 分布热力图 y 轴刻度步长
 
 q_evaluation:
-  interval: 2                    # 每隔多少个 epoch 进行一次大规模 Q/MSE 评估；设置为 0 可关闭
-  num_samples: 1000               # 每次评估生成的样本数；每个样本都会统计 Q 值和峰值对齐 Lorentzian MSE
+  interval: 5                    # 每隔多少个 epoch 进行一次大规模 Q/MSE 评估；设置为 0 可关闭
+  num_samples: 1024               # 每次评估生成的样本数；每个样本都会统计 Q 值和峰值对齐 Lorentzian MSE
