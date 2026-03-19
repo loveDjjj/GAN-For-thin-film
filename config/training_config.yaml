@@ -11,6 +11,9 @@ materials:
   materials_list:
     - Ge                # 候选材料 1；名称需能被 data/myindex.py 在 data/Materials/ 下解析
     - SiO2              # 候选材料 2
+    - ZnO
+    - YbF3
+    - Si
 
 optics:
   wavelength_range: [3, 6]        # 训练和推理共享的波长范围，单位 um
@@ -47,11 +50,11 @@ optimizer:
 visualization:
   checkpoint_sample_count: 8      # 保存训练样本图时一次生成的样本数
   sample_export_count: 4          # 每次导出的样本条目数
-  material_analysis_batch_size: 64 # 材料概率分析时的采样批大小
+  material_analysis_batch_size: 256 # 材料概率分析时的采样批大小
   thickness_histogram_bins: 20    # 厚度直方图的 bin 数
-  distribution_epoch_interval: 10 # 统计厚度/层数分布的 epoch 间隔
-  heatmap_epoch_tick_step: 10     # 分布热力图 y 轴刻度步长
+  distribution_epoch_interval: 2 # 统计厚度/层数分布的 epoch 间隔
+  heatmap_epoch_tick_step: 2     # 分布热力图 y 轴刻度步长
 
 q_evaluation:
-  interval: 10                    # 每隔多少个 epoch 进行一次大规模 Q/MSE 评估；设置为 0 可关闭
+  interval: 2                    # 每隔多少个 epoch 进行一次大规模 Q/MSE 评估；设置为 0 可关闭
   num_samples: 1000               # 每次评估生成的样本数；每个样本都会统计 Q 值和峰值对齐 Lorentzian MSE
