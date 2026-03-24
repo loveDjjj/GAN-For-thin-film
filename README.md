@@ -39,10 +39,9 @@ requirements.txt
 
 - `train.py`：训练入口，读取 `config/training_config.yaml` 并创建训练输出目录。
 - `train/trainer.py`：GAN 训练主循环，调用 Lorentzian 目标谱和 TMM 反射率计算。
-- `train/q_evaluator.py`：训练期大规模生成样本，批量计算每个样本的 Q 值和峰值对齐 Lorentzian MSE，并输出统计结果。
+- `train/q_evaluator.py`：训练期大规模生成样本，批量计算每个样本的 Q 值、峰值对齐 Lorentzian MSE，以及结构固定度/每层主导材料概率统计，并输出 CSV 和图。
 - `train/high_quality_solution_collector.py`：按 Q、MSE、峰值和材料概率阈值筛选优质解，保存光谱、结构 JSON 和汇总统计图。
 - `utils/reproducibility.py`：设置全局 seed，生成固定训练 center 池和固定评估噪声池。
-- `utils/reproducibility.py`：设置全局 seed，生成固定训练 center 池并在每个 epoch 做确定性 shuffle，同时生成固定评估噪声池。
 - `infer.py`：推理入口，先读 `config/inference_config.yaml`，再允许 CLI 覆盖同名参数。
 - `inference/inferer.py`：批量生成样本、按目标谱筛选 best samples、计算 Pareto front 和 Q-factor。
 - `model/net.py`：生成器与判别器定义。
@@ -99,6 +98,7 @@ python analyze_gan_samoples.py --model_path <generator_final.pth> --config_path 
 
 - `config/training_config.yaml`
   - 分组：`structure`、`materials`、`optics`、`generator`、`training`、`optimizer`、`visualization`、`q_evaluation`、`high_quality_collection`、`reproducibility`
+  - `q_evaluation` 除了 Q/MSE 外，还会统计 `dominant_material_prob_threshold` 阈值下的结构固定度；该统计跟随当前 epoch 的 `alpha`
 - `config/inference_config.yaml`
   - 关键字段：`model_path`、`config_path`、`output_dir`、`num_samples`、`infer_batch_size`、`alpha`、`target_center`、`target_width`、`center_region`、`weight_factor`、`best_samples`、`q_eval_window`
 
@@ -111,6 +111,7 @@ python analyze_gan_samoples.py --model_path <generator_final.pth> --config_path 
   - 典型内容：`models/`、`samples/`、`samples/data/`、`training_metrics.png`
   - 分布图：`thickness_distribution_evolution_combined.png`、`merged_layers_distribution_evolution_combined.png`
   - Q/MSE 评估：`q_evaluation/`、`q_mse_evaluation_summary.csv`、`q_mse_evaluation_curves.png`、`q_mse_metrics_epoch_*.csv`
+  - 结构固定度统计：`q_evaluation/material_certainty_epoch_*.png`、`q_evaluation/material_certainty_curves.png`、`q_evaluation/material_certainty_layers_epoch_*.csv`、`q_evaluation/material_certainty_layer_history.csv`
   - 优质解收集：`high_quality_solutions/`、`summary/high_quality_solutions.csv`、`summary/high_quality_solution_distributions.png`、`epoch_*/epoch_*_sample_*/`
   - 可复现资产：`reproducibility/`、`training_target_center_pool.csv`、`q_eval_thickness_noise.pt`、`q_eval_material_noise.pt`
 - 推理输出：`generated_samples/best_samples_YYYYMMDD_HHMMSS/`

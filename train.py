@@ -114,6 +114,9 @@ def load_parameters(config_path, device):
     q_evaluation = config.get("q_evaluation", {})
     params.q_eval_interval = max(0, int(q_evaluation.get("interval", 0)))
     params.q_eval_num_samples = max(1, int(q_evaluation.get("num_samples", 1000)))
+    params.q_eval_dominant_prob_threshold = float(
+        q_evaluation.get("dominant_material_prob_threshold", 0.99)
+    )
 
     high_quality_collection = config.get("high_quality_collection", {})
     params.high_quality_collection_enabled = bool(high_quality_collection.get("enabled", False))
@@ -178,7 +181,8 @@ def load_parameters(config_path, device):
         "Q/MSE evaluation parameters: "
         f"interval={params.q_eval_interval}, "
         f"num_samples={params.q_eval_num_samples}, "
-        f"lorentz_width={params.lorentz_width}"
+        f"lorentz_width={params.lorentz_width}, "
+        f"dominant_material_prob_threshold={params.q_eval_dominant_prob_threshold}"
     )
     print(
         "High-quality collection parameters: "

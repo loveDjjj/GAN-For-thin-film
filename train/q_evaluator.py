@@ -151,17 +151,50 @@ def compute_q_mse_metrics_torch(wavelengths, absorption_spectra, lorentz_width, 
     return {**q_results, **mse_results}
 
 
-def summarize_q_results(q_results, epoch, alpha, num_samples, lorentz_width):
-    """Compute summary statistics for a batch of Q and Lorentzian-MSE results."""
+def compute_material_certainty_metrics_torch(material_probabilities, dominant_prob_threshold):
+    """Compute per-sample material certainty metrics from generator probabilities."""
+    if material_probabilities.ndim == 2:
+        material_probabilities = material_probabilities.unsqueeze(0)
+    if material_probabilities.ndim != 3:
+        raise ValueError("material_probabilities must have shape [batch_size, num_layers, num_materials]")
+
+    dominant_probabilities, dominant_material_indices = material_probabilities.max(dim=2)
+    fixed_layer_mask = dominant_probabilities > dominant_prob_threshold
+    fixed_layer_count = fixed_layer_mask.sum(dim=1)
+    fixed_layer_ratio = fixed_layer_count.float() / max(material_probabilities.shape[1], 1)
+    fully_fixed_mask = fixed_layer_mask.all(dim=1)
+
+    return {
+        "dominant_material_probabilities": dominant_probabilities,
+        "dominant_material_indices": dominant_material_indices,
+        "fixed_layer_mask": fixed_layer_mask,
+        "fixed_layer_count": fixed_layer_count,
+        "fixed_layer_ratio": fixed_layer_ratio,
+        "fully_fixed_mask": fully_fixed_mask,
+        "min_dominant_material_probability": dominant_probabilities.min(dim=1).values,
+        "mean_dominant_material_probability": dominant_probabilities.mean(dim=1),
+    }
+
+
+def summarize_q_results(q_results, epoch, alpha, num_samples, lorentz_width, dominant_prob_threshold):
+    """Compute summary statistics for a batch of Q/MSE/certainty results."""
     q_values = q_results["q_values"]
     mse_values = q_results["mse_values"]
     valid_mask = q_results["valid_mask"]
+    fixed_layer_count = q_results["fixed_layer_count"].float()
+    fixed_layer_ratio = q_results["fixed_layer_ratio"]
+    fully_fixed_mask = q_results["fully_fixed_mask"]
+    min_dominant_probabilities = q_results["min_dominant_material_probability"]
+    mean_dominant_probabilities = q_results["mean_dominant_material_probability"]
+    dominant_material_probabilities = q_results["dominant_material_probabilities"]
+    fixed_layer_mask = q_results["fixed_layer_mask"]
 
-    return {
+    summary = {
         "epoch": int(epoch),
         "alpha": float(alpha),
         "num_samples": int(num_samples),
         "lorentz_width": float(lorentz_width),
+        "dominant_material_prob_threshold": float(dominant_prob_threshold),
         "valid_count": int(valid_mask.sum().item()),
         "valid_ratio": float(valid_mask.float().mean().item()),
         "mean_q": float(q_values.mean().item()),
@@ -173,11 +206,57 @@ def summarize_q_results(q_results, epoch, alpha, num_samples, lorentz_width):
         "min_mse": float(mse_values.min().item()),
         "max_mse": float(mse_values.max().item()),
         "std_mse": float(mse_values.std(unbiased=False).item()),
+        "fully_fixed_count": int(fully_fixed_mask.sum().item()),
+        "fully_fixed_ratio": float(fully_fixed_mask.float().mean().item()),
+        "mean_fixed_layer_count": float(fixed_layer_count.mean().item()),
+        "median_fixed_layer_count": float(fixed_layer_count.median().item()),
+        "mean_fixed_layer_ratio": float(fixed_layer_ratio.mean().item()),
+        "mean_min_dominant_material_probability": float(min_dominant_probabilities.mean().item()),
+        "median_min_dominant_material_probability": float(min_dominant_probabilities.median().item()),
+        "mean_mean_dominant_material_probability": float(mean_dominant_probabilities.mean().item()),
+        "median_mean_dominant_material_probability": float(mean_dominant_probabilities.median().item()),
     }
 
+    for layer_index in range(dominant_material_probabilities.shape[1]):
+        layer_probabilities = dominant_material_probabilities[:, layer_index]
+        layer_fixed = fixed_layer_mask[:, layer_index].float()
+        summary[f"layer_{layer_index + 1}_mean_dominant_probability"] = float(layer_probabilities.mean().item())
+        summary[f"layer_{layer_index + 1}_fixed_ratio"] = float(layer_fixed.mean().item())
 
-def save_q_evaluation_epoch(q_results, summary, save_dir):
-    """Save per-epoch Q and MSE statistics and plots."""
+    return summary
+
+
+def _build_layer_summary_dataframe(q_results, materials):
+    """Build layer-level certainty summary rows for one evaluation epoch."""
+    dominant_material_probabilities = q_results["dominant_material_probabilities"].detach().cpu()
+    dominant_material_indices = q_results["dominant_material_indices"].detach().cpu()
+    fixed_layer_mask = q_results["fixed_layer_mask"].detach().cpu()
+
+    rows = []
+    for layer_index in range(dominant_material_probabilities.shape[1]):
+        layer_probabilities = dominant_material_probabilities[:, layer_index]
+        layer_fixed = fixed_layer_mask[:, layer_index]
+        layer_indices = dominant_material_indices[:, layer_index]
+        row = {
+            "layer_index": layer_index + 1,
+            "mean_dominant_probability": float(layer_probabilities.mean().item()),
+            "median_dominant_probability": float(layer_probabilities.median().item()),
+            "min_dominant_probability": float(layer_probabilities.min().item()),
+            "max_dominant_probability": float(layer_probabilities.max().item()),
+            "fixed_ratio": float(layer_fixed.float().mean().item()),
+            "fixed_count": int(layer_fixed.sum().item()),
+        }
+        for material_index, material_name in enumerate(materials):
+            dominant_mask = layer_indices == material_index
+            row[f"dominant_count_{material_name}"] = int(dominant_mask.sum().item())
+            row[f"dominant_ratio_{material_name}"] = float(dominant_mask.float().mean().item())
+        rows.append(row)
+
+    return pd.DataFrame(rows)
+
+
+def save_q_evaluation_epoch(q_results, summary, save_dir, materials):
+    """Save per-epoch Q/MSE/certainty statistics and plots."""
     os.makedirs(save_dir, exist_ok=True)
 
     epoch = summary["epoch"]
@@ -189,6 +268,14 @@ def save_q_evaluation_epoch(q_results, summary, save_dir):
     left_wavelengths = q_results["left_wavelengths"].detach().cpu().numpy()
     right_wavelengths = q_results["right_wavelengths"].detach().cpu().numpy()
     fwhm = q_results["fwhm"].detach().cpu().numpy()
+    fixed_layer_count = q_results["fixed_layer_count"].detach().cpu().numpy()
+    fixed_layer_ratio = q_results["fixed_layer_ratio"].detach().cpu().numpy()
+    fully_fixed_mask = q_results["fully_fixed_mask"].detach().cpu().numpy()
+    min_dominant_probabilities = q_results["min_dominant_material_probability"].detach().cpu().numpy()
+    mean_dominant_probabilities = q_results["mean_dominant_material_probability"].detach().cpu().numpy()
+    dominant_material_probabilities = q_results["dominant_material_probabilities"].detach().cpu().numpy()
+    dominant_material_indices = q_results["dominant_material_indices"].detach().cpu().numpy()
+    fixed_layer_mask = q_results["fixed_layer_mask"].detach().cpu().numpy()
 
     details_df = pd.DataFrame(
         {
@@ -201,10 +288,34 @@ def save_q_evaluation_epoch(q_results, summary, save_dir):
             "left_half_max_um": left_wavelengths,
             "right_half_max_um": right_wavelengths,
             "fwhm_um": fwhm,
+            "fixed_layer_count": fixed_layer_count,
+            "fixed_layer_ratio": fixed_layer_ratio,
+            "is_fully_fixed": fully_fixed_mask,
+            "min_dominant_material_probability": min_dominant_probabilities,
+            "mean_dominant_material_probability": mean_dominant_probabilities,
         }
     )
+    for layer_index in range(dominant_material_probabilities.shape[1]):
+        layer_column_prefix = f"layer_{layer_index + 1}"
+        layer_material_indices = dominant_material_indices[:, layer_index]
+        details_df[f"{layer_column_prefix}_dominant_material_index"] = layer_material_indices
+        details_df[f"{layer_column_prefix}_dominant_material"] = [
+            (
+                materials[int(material_index)]
+                if 0 <= int(material_index) < len(materials)
+                else f"material_{int(material_index)}"
+            )
+            for material_index in layer_material_indices
+        ]
+        details_df[f"{layer_column_prefix}_dominant_probability"] = dominant_material_probabilities[:, layer_index]
+        details_df[f"{layer_column_prefix}_is_fixed"] = fixed_layer_mask[:, layer_index]
+
     details_path = os.path.join(save_dir, f"q_mse_metrics_epoch_{epoch}.csv")
     details_df.to_csv(details_path, index=False)
+
+    layer_summary_df = _build_layer_summary_dataframe(q_results, materials)
+    layer_summary_path = os.path.join(save_dir, f"material_certainty_layers_epoch_{epoch}.csv")
+    layer_summary_df.to_csv(layer_summary_path, index=False)
 
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
 
@@ -245,12 +356,96 @@ def save_q_evaluation_epoch(q_results, summary, save_dir):
     fig.savefig(plot_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
 
+    certainty_fig, certainty_axes = plt.subplots(2, 2, figsize=(14, 10))
+
+    certainty_axes[0, 0].hist(
+        min_dominant_probabilities,
+        bins=30,
+        color="slateblue",
+        alpha=0.85,
+        edgecolor="black",
+    )
+    certainty_axes[0, 0].axvline(
+        summary["dominant_material_prob_threshold"],
+        color="crimson",
+        linestyle="--",
+        linewidth=1.5,
+    )
+    certainty_axes[0, 0].set_title(f"Min Dominant Probability Distribution (Epoch {epoch})")
+    certainty_axes[0, 0].set_xlabel("Min Dominant Probability")
+    certainty_axes[0, 0].set_ylabel("Count")
+    certainty_axes[0, 0].grid(True, alpha=0.3)
+
+    certainty_axes[0, 1].hist(
+        fixed_layer_count,
+        bins=range(dominant_material_probabilities.shape[1] + 2),
+        align="left",
+        color="teal",
+        alpha=0.85,
+        edgecolor="black",
+        rwidth=0.85,
+    )
+    certainty_axes[0, 1].set_title(f"Fixed Layer Count per Structure (Epoch {epoch})")
+    certainty_axes[0, 1].set_xlabel("Fixed Layer Count")
+    certainty_axes[0, 1].set_ylabel("Count")
+    certainty_axes[0, 1].set_xticks(range(dominant_material_probabilities.shape[1] + 1))
+    certainty_axes[0, 1].grid(True, axis="y", alpha=0.3)
+
+    certainty_axes[1, 0].bar(
+        layer_summary_df["layer_index"].astype(str),
+        layer_summary_df["fixed_ratio"] * 100.0,
+        color="darkorange",
+        alpha=0.9,
+    )
+    certainty_axes[1, 0].set_title("Per-Layer Fixed Ratio")
+    certainty_axes[1, 0].set_xlabel("Layer")
+    certainty_axes[1, 0].set_ylabel("Fixed Ratio (%)")
+    certainty_axes[1, 0].set_ylim(0, 100)
+    certainty_axes[1, 0].grid(True, axis="y", alpha=0.3)
+
+    scatter = certainty_axes[1, 1].scatter(
+        min_dominant_probabilities,
+        q_values,
+        c=mse_values,
+        cmap="viridis_r",
+        s=14,
+        alpha=0.7,
+    )
+    certainty_axes[1, 1].axvline(
+        summary["dominant_material_prob_threshold"],
+        color="crimson",
+        linestyle="--",
+        linewidth=1.5,
+    )
+    certainty_axes[1, 1].set_title("Min Dominant Probability vs Q")
+    certainty_axes[1, 1].set_xlabel("Min Dominant Probability")
+    certainty_axes[1, 1].set_ylabel("Q")
+    certainty_axes[1, 1].grid(True, alpha=0.3)
+    certainty_colorbar = certainty_fig.colorbar(scatter, ax=certainty_axes[1, 1])
+    certainty_colorbar.set_label("Lorentzian MSE")
+
+    certainty_fig.suptitle(
+        (
+            f"Epoch {epoch} Material Certainty | fully_fixed={summary['fully_fixed_ratio'] * 100:.1f}%, "
+            f"mean_fixed_layers={summary['mean_fixed_layer_count']:.2f}, "
+            f"mean_min_prob={summary['mean_min_dominant_material_probability']:.4f}"
+        ),
+        fontsize=14,
+    )
+    certainty_fig.tight_layout(rect=[0, 0, 1, 0.96])
+
+    certainty_plot_path = os.path.join(save_dir, f"material_certainty_epoch_{epoch}.png")
+    certainty_fig.savefig(certainty_plot_path, dpi=300, bbox_inches="tight")
+    plt.close(certainty_fig)
+
     print(f"Q/MSE evaluation detail CSV saved to: {details_path}")
     print(f"Q/MSE evaluation distribution plot saved to: {plot_path}")
+    print(f"Material certainty layer CSV saved to: {layer_summary_path}")
+    print(f"Material certainty plot saved to: {certainty_plot_path}")
 
 
 def save_q_evaluation_history(history, save_dir):
-    """Save cross-epoch Q and MSE summary CSV and plots."""
+    """Save cross-epoch Q/MSE/certainty summary CSV and plots."""
     if not history:
         return
 
@@ -303,18 +498,143 @@ def save_q_evaluation_history(history, save_dir):
     fig.savefig(plot_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
 
+    layer_ratio_columns = [
+        column
+        for column in history_df.columns
+        if column.startswith("layer_") and column.endswith("_fixed_ratio")
+    ]
+    layer_ratio_columns = sorted(layer_ratio_columns, key=lambda name: int(name.split("_")[1]))
+    layer_mean_prob_columns = [
+        column
+        for column in history_df.columns
+        if column.startswith("layer_") and column.endswith("_mean_dominant_probability")
+    ]
+    layer_mean_prob_columns = sorted(layer_mean_prob_columns, key=lambda name: int(name.split("_")[1]))
+
+    layer_history_records = []
+    for _, row in history_df.iterrows():
+        layer_count = min(len(layer_ratio_columns), len(layer_mean_prob_columns))
+        for layer_index in range(layer_count):
+            layer_history_records.append(
+                {
+                    "epoch": int(row["epoch"]),
+                    "layer_index": layer_index + 1,
+                    "fixed_ratio": float(row[layer_ratio_columns[layer_index]]),
+                    "mean_dominant_probability": float(row[layer_mean_prob_columns[layer_index]]),
+                }
+            )
+    layer_history_path = os.path.join(save_dir, "material_certainty_layer_history.csv")
+    pd.DataFrame(layer_history_records).to_csv(layer_history_path, index=False)
+
+    certainty_fig, certainty_axes = plt.subplots(2, 2, figsize=(14, 10))
+
+    certainty_axes[0, 0].plot(
+        history_df["epoch"],
+        history_df["fully_fixed_ratio"] * 100.0,
+        marker="o",
+        linewidth=2,
+        label="Fully Fixed Ratio",
+    )
+    certainty_axes[0, 0].plot(
+        history_df["epoch"],
+        history_df["mean_fixed_layer_ratio"] * 100.0,
+        marker="s",
+        linewidth=2,
+        label="Mean Fixed Layer Ratio",
+    )
+    certainty_axes[0, 0].set_ylabel("Ratio (%)")
+    certainty_axes[0, 0].set_title("Structure Fixedness During Training")
+    certainty_axes[0, 0].grid(True, alpha=0.3)
+    certainty_axes[0, 0].legend()
+
+    certainty_axes[0, 1].plot(
+        history_df["epoch"],
+        history_df["mean_min_dominant_material_probability"],
+        marker="o",
+        linewidth=2,
+        label="Mean Min Dominant Prob",
+    )
+    certainty_axes[0, 1].plot(
+        history_df["epoch"],
+        history_df["median_min_dominant_material_probability"],
+        marker="s",
+        linewidth=2,
+        label="Median Min Dominant Prob",
+    )
+    certainty_axes[0, 1].axhline(
+        history_df["dominant_material_prob_threshold"].iloc[0],
+        color="crimson",
+        linestyle="--",
+        linewidth=1.4,
+        label="Fixed Threshold",
+    )
+    certainty_axes[0, 1].set_ylabel("Probability")
+    certainty_axes[0, 1].set_title("Dominant Probability Floor During Training")
+    certainty_axes[0, 1].grid(True, alpha=0.3)
+    certainty_axes[0, 1].legend()
+
+    certainty_axes[1, 0].plot(
+        history_df["epoch"],
+        history_df["mean_fixed_layer_count"],
+        marker="o",
+        linewidth=2,
+        label="Mean Fixed Layer Count",
+    )
+    certainty_axes[1, 0].plot(
+        history_df["epoch"],
+        history_df["median_fixed_layer_count"],
+        marker="s",
+        linewidth=2,
+        label="Median Fixed Layer Count",
+    )
+    certainty_axes[1, 0].set_xlabel("Epoch")
+    certainty_axes[1, 0].set_ylabel("Layer Count")
+    certainty_axes[1, 0].set_title("Fixed Layer Count per Structure")
+    certainty_axes[1, 0].grid(True, alpha=0.3)
+    certainty_axes[1, 0].legend()
+
+    if layer_ratio_columns:
+        heatmap_data = (history_df[layer_ratio_columns] * 100.0).to_numpy()
+        image = certainty_axes[1, 1].imshow(
+            heatmap_data,
+            aspect="auto",
+            cmap="YlGnBu",
+            origin="lower",
+        )
+        certainty_axes[1, 1].set_title("Per-Layer Fixed Ratio Heatmap")
+        certainty_axes[1, 1].set_xlabel("Layer")
+        certainty_axes[1, 1].set_ylabel("Evaluation Index")
+        certainty_axes[1, 1].set_xticks(range(len(layer_ratio_columns)))
+        certainty_axes[1, 1].set_xticklabels(
+            [column.split("_")[1] for column in layer_ratio_columns]
+        )
+        certainty_axes[1, 1].set_yticks(range(len(history_df)))
+        certainty_axes[1, 1].set_yticklabels(history_df["epoch"].astype(int).tolist())
+        certainty_colorbar = certainty_fig.colorbar(image, ax=certainty_axes[1, 1])
+        certainty_colorbar.set_label("Fixed Ratio (%)")
+    else:
+        certainty_axes[1, 1].set_axis_off()
+
+    certainty_fig.tight_layout()
+    certainty_plot_path = os.path.join(save_dir, "material_certainty_curves.png")
+    certainty_fig.savefig(certainty_plot_path, dpi=300, bbox_inches="tight")
+    plt.close(certainty_fig)
+
     print(f"Q/MSE evaluation summary CSV saved to: {summary_path}")
     print(f"Q/MSE evaluation summary plot saved to: {plot_path}")
+    print(f"Material certainty layer history CSV saved to: {layer_history_path}")
+    print(f"Material certainty summary plot saved to: {certainty_plot_path}")
 
 
 def evaluate_generator_q(generator, params, device, alpha, epoch, save_dir, high_quality_dir=None):
-    """Generate samples in batches, compute Q and MSE in parallel, and save summary artifacts."""
+    """Generate samples in batches, compute Q/MSE/certainty in parallel, and save summary artifacts."""
     num_samples = max(1, int(getattr(params, "q_eval_num_samples", 1000)))
     batch_size = max(1, min(int(getattr(params, "batch_size", num_samples)), num_samples))
     wavelengths = (2 * torch.pi / params.k.to(device)).float()
     high_quality_criteria = build_high_quality_criteria(params)
     fixed_thickness_noise = getattr(params, "fixed_q_eval_thickness_noise", None)
     fixed_material_noise = getattr(params, "fixed_q_eval_material_noise", None)
+    dominant_prob_threshold = float(getattr(params, "q_eval_dominant_prob_threshold", 0.99))
 
     collected_results = []
     high_quality_records = []
@@ -343,6 +663,12 @@ def evaluate_generator_q(generator, params, device, alpha, epoch, save_dir, high
                 wavelengths,
                 absorption,
                 lorentz_width=float(getattr(params, "lorentz_width", 0.02)),
+            )
+            batch_results.update(
+                compute_material_certainty_metrics_torch(
+                    material_probabilities,
+                    dominant_prob_threshold=dominant_prob_threshold,
+                )
             )
             collected_results.append(batch_results)
 
@@ -375,6 +701,7 @@ def evaluate_generator_q(generator, params, device, alpha, epoch, save_dir, high
         alpha=alpha,
         num_samples=num_samples,
         lorentz_width=float(getattr(params, "lorentz_width", 0.02)),
+        dominant_prob_threshold=dominant_prob_threshold,
     )
     collection_summary = {"new_high_quality_count": 0, "total_high_quality_count": 0}
     if high_quality_criteria["enabled"] and high_quality_dir is not None:
@@ -382,5 +709,5 @@ def evaluate_generator_q(generator, params, device, alpha, epoch, save_dir, high
 
     summary["high_quality_count"] = int(collection_summary["new_high_quality_count"])
     summary["total_high_quality_count"] = int(collection_summary["total_high_quality_count"])
-    save_q_evaluation_epoch(merged_results, summary, save_dir)
+    save_q_evaluation_epoch(merged_results, summary, save_dir, materials=list(getattr(params, "materials", [])))
     return summary
