@@ -1,14 +1,14 @@
 # Notes
 
 ## 需求（2026-03-24）
-优化反射率计算和推理筛样链路：去掉每次反射计算里的金属材料重复读取/CPU 插值/逐波长 Python 循环，并把推理阶段的筛样、Q 计算、top-k 尽量留在 GPU，最后再搬运保存所需样本。
+将当前 main 分支的 TMM 金属层计算逻辑改回与 master 一致，同时保留一次缓存到 GPU 的实现方式，并统一使用 complex128。
 
 ## 验证
 ```bash
-python -m py_compile train.py infer.py model/TMM/optical_calculator.py inference/filtering.py inference/qfactor.py inference/inferer.py inference/visualization.py
-git diff -- train.py infer.py model/TMM/optical_calculator.py inference/filtering.py inference/qfactor.py inference/inferer.py inference/visualization.py docs/notes.md docs/logs/2026-03.md
+python -m py_compile train.py infer.py model/TMM/optical_calculator.py
+git diff -- train.py infer.py model/TMM/optical_calculator.py docs/notes.md docs/logs/2026-03.md
 ```
 
 ## Git
 - branch: `main`
-- commit: `git commit -m "feat: accelerate reflection and inference screening on gpu"`
+- commit: `git commit -m "fix: restore master-compatible tmm metal interpolation"`

@@ -6,6 +6,7 @@ import torch
 import numpy as np
 
 from train.trainer import train_gan
+from model.TMM.optical_calculator import cache_master_compatible_metal_refractive_indices
 from utils.config_loader import Params, load_config
 from data.myindex import MatDatabase
 
@@ -161,15 +162,8 @@ def load_parameters(config_path, device):
         params.M_materials = params.n_database.size(0)
         print(f"Using materials: {', '.join(params.materials)}")
 
-    metal_database = MatDatabase([params.metal_name])
-    metal_n_database, metal_k_database = metal_database.interp_wv(
-        2 * np.pi / params.k, [params.metal_name], False
-    )
-    params.metal_n_database = metal_n_database.squeeze(0)
-    params.metal_k_database = metal_k_database.squeeze(0)
-    params.metal_refractive_indices = (
-        params.metal_n_database.to(device=device) + 1j * params.metal_k_database.to(device=device)
-    )
+    # Keep the master branch metal interpolation logic, but cache the full wavelength grid once on GPU.
+    params.metal_refractive_indices = cache_master_compatible_metal_refractive_indices(params, device)
     print(f"Using bottom metal: {params.metal_name}")
 
     print(f"Training parameters: batch_size={params.batch_size}, epochs={params.epochs}")

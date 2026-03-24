@@ -1,38 +1,39 @@
+import numpy as np
 import torch
 
 from model.TMM.TMM import TMM_solver
-from data.myindex import MatDatabase
+from data.myindex import index
 
 
-def _get_metal_refractive_indices(params, device, dtype):
-    """Return cached metal refractive indices on the requested device/dtype."""
+def cache_master_compatible_metal_refractive_indices(params, device):
+    """Cache master-compatible metal indices once and reuse them on GPU."""
     metal_refractive_indices = getattr(params, "metal_refractive_indices", None)
     if metal_refractive_indices is None:
-        metal_database = MatDatabase([params.metal_name])
-        metal_n_database, metal_k_database = metal_database.interp_wv(
-            2 * torch.pi / params.k,
-            [params.metal_name],
-            False,
+        wavelengths_um = np.asarray(2 * np.pi / params.k.detach().cpu().numpy(), dtype=np.float64)
+        metal_interp = index(params.metal_name)
+        metal_values = np.asarray(metal_interp(wavelengths_um), dtype=np.complex128).reshape(-1)
+        metal_refractive_indices = torch.as_tensor(
+            metal_values,
+            dtype=torch.complex128,
+            device=device,
         )
-        params.metal_n_database = metal_n_database.squeeze(0)
-        params.metal_k_database = metal_k_database.squeeze(0)
-        params.metal_refractive_indices = (
-            params.metal_n_database.to(device=device) + 1j * params.metal_k_database.to(device=device)
-        )
-        metal_refractive_indices = params.metal_refractive_indices
-    return metal_refractive_indices.to(device=device, dtype=dtype)
+        params.metal_refractive_indices = metal_refractive_indices
+        params.metal_n_database = metal_refractive_indices.real.detach().cpu()
+        params.metal_k_database = metal_refractive_indices.imag.detach().cpu()
+    return metal_refractive_indices.to(device=device, dtype=torch.complex128)
 
 
 def calculate_reflection(thicknesses, refractive_indices, params, device):
-    """Calculate reflectance for multilayer films with cached metal optical constants."""
+    """Calculate reflectance with master-compatible metal interpolation and GPU caching."""
     batch_size = thicknesses.size(0)
     k = params.k.to(device)
-    complex_dtype = refractive_indices.dtype if torch.is_complex(refractive_indices) else torch.complex64
+    complex_dtype = torch.complex128
 
     air_refractive = torch.ones((batch_size, 1, len(k)), dtype=complex_dtype, device=device)
-    metal_refractive = _get_metal_refractive_indices(params, device, complex_dtype)
+    metal_refractive = cache_master_compatible_metal_refractive_indices(params, device)
     metal_refractive = metal_refractive.view(1, 1, -1).expand(batch_size, -1, -1)
 
+    refractive_indices = refractive_indices.to(complex_dtype)
     refractive_indices = torch.cat((air_refractive, refractive_indices), dim=1)
     refractive_indices = torch.cat((refractive_indices, metal_refractive), dim=1)
     refractive_indices = torch.cat((refractive_indices, air_refractive), dim=1)
