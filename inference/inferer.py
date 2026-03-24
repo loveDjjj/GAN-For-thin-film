@@ -1,6 +1,6 @@
 import os
+
 import torch
-import numpy as np
 
 from model.TMM.optical_calculator import calculate_reflection
 from inference import filtering
@@ -10,13 +10,12 @@ from utils.visualize import analyze_inference_distribution
 
 
 def generate_samples(generator, params, num_samples, alpha, device, batch_size):
-    """Generate samples using the trained generator."""
+    """Generate samples and keep tensors on GPU for downstream filtering."""
     if batch_size <= 0:
         raise ValueError("infer_batch_size must be a positive integer")
 
-    wavelengths = 2 * np.pi / params.k.cpu()
+    wavelengths = (2 * torch.pi / params.k.to(device)).float()
     thicknesses_list = []
-    refractive_indices_list = []
     probs_list = []
     absorption_list = []
 
@@ -27,32 +26,40 @@ def generate_samples(generator, params, num_samples, alpha, device, batch_size):
             material_noise = torch.randn(current, params.material_noise_dim, device=device)
 
             thicknesses, refractive_indices, P = generator(thickness_noise, material_noise, alpha)
+            if P.ndim == 2:
+                P = P.unsqueeze(0)
             reflection = calculate_reflection(thicknesses, refractive_indices, params, device)
             absorption = (1 - reflection).float()
 
-            thicknesses_list.append(thicknesses.cpu())
-            refractive_indices_list.append(refractive_indices.cpu())
-            probs_list.append(P.cpu())
-            absorption_list.append(absorption.cpu().numpy())
+            thicknesses_list.append(thicknesses.detach())
+            probs_list.append(P.detach())
+            absorption_list.append(absorption.detach())
 
     thicknesses_all = torch.cat(thicknesses_list, dim=0)
-    refractive_indices_all = torch.cat(refractive_indices_list, dim=0)
     probs_all = torch.cat(probs_list, dim=0)
-    absorption_all = np.concatenate(absorption_list, axis=0)
+    absorption_all = torch.cat(absorption_list, dim=0)
 
-    return wavelengths.cpu().numpy(), thicknesses_all, refractive_indices_all, probs_all, absorption_all
+    return wavelengths, thicknesses_all, probs_all, absorption_all
 
 
 def create_target_lorentzian(wavelengths, center, width):
-    """Create a target Lorentzian function with specified center and width."""
-    gamma = width
-    target = gamma / (2 * np.pi * ((wavelengths - center) ** 2 + (gamma / 2) ** 2))
-    target = target / np.max(target)
-    return target
+    """Create a normalized target Lorentzian on the same device as wavelengths."""
+    wavelengths = wavelengths.flatten()
+    gamma = torch.as_tensor(width, device=wavelengths.device, dtype=wavelengths.dtype)
+    center = torch.as_tensor(center, device=wavelengths.device, dtype=wavelengths.dtype)
+    target = (gamma / 2) / ((wavelengths - center) ** 2 + (gamma / 2) ** 2)
+    max_value = target.max().clamp_min(torch.finfo(target.dtype).eps)
+    return target / max_value
+
+
+def _to_numpy(value):
+    if torch.is_tensor(value):
+        return value.detach().cpu().numpy()
+    return value
 
 
 def run_inference(args, load_parameters=None, load_model=None):
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
     if load_parameters is None or load_model is None:
@@ -62,7 +69,7 @@ def run_inference(args, load_parameters=None, load_model=None):
     generator = load_model(args.model_path, params, device)
 
     print(f"Generating {args.num_samples} samples for screening...")
-    wavelengths, thicknesses, refractive_indices, P, absorption_spectra = generate_samples(
+    wavelengths, thicknesses, P, absorption_spectra = generate_samples(
         generator, params, args.num_samples, args.alpha, device, args.infer_batch_size
     )
 
@@ -83,36 +90,40 @@ def run_inference(args, load_parameters=None, load_model=None):
         args.best_samples,
     )
 
+    best_indices_cpu = best_indices.detach().cpu()
+    best_rmse_cpu = best_rmse.detach().cpu()
     print("Best samples selected:")
-    for i, (idx, rmse) in enumerate(zip(best_indices, best_rmse)):
-        print(f"  Best Sample {i+1}: Index {idx}, RMSE = {rmse:.6f}")
+    for result_index, (sample_index, rmse_value) in enumerate(zip(best_indices_cpu.tolist(), best_rmse_cpu.tolist()), start=1):
+        print(f"  Best Sample {result_index}: Index {sample_index}, RMSE = {rmse_value:.6f}")
+
+    wavelengths_cpu = _to_numpy(wavelengths)
+    target_cpu = _to_numpy(target)
+    best_absorption = _to_numpy(absorption_spectra.index_select(0, best_indices))
+    best_thicknesses = thicknesses.index_select(0, best_indices).detach().cpu()
+    best_probs = P.index_select(0, best_indices).detach().cpu()
 
     save_dir = visualization.save_best_results(
         args.output_dir,
-        wavelengths,
-        thicknesses,
-        P,
-        absorption_spectra,
-        best_indices,
-        best_rmse,
-        target,
+        wavelengths_cpu,
+        best_thicknesses,
+        best_probs,
+        best_absorption,
+        list(range(best_indices.numel())),
+        best_rmse_cpu.numpy(),
+        target_cpu,
         params,
+        original_indices=best_indices_cpu.numpy(),
     )
 
-    # 分析所有生成样本的厚度和层数分布
     print("Analyzing thickness and merged layers distribution of generated samples...")
     analyze_inference_distribution(thicknesses, P, save_dir, prefix="all_samples")
 
-    # 分析最佳样本的厚度和层数分布
-    if best_indices.size > 0:
-        print(f"Analyzing distribution of {len(best_indices)} best samples...")
-        best_thicknesses = thicknesses[best_indices]
-        best_P = P[best_indices]
-        analyze_inference_distribution(best_thicknesses, best_P, save_dir, prefix="best_samples")
+    if best_indices.numel() > 0:
+        print(f"Analyzing distribution of {best_indices.numel()} best samples...")
+        analyze_inference_distribution(best_thicknesses, best_probs, save_dir, prefix="best_samples")
     else:
         print("No best samples to analyze")
 
-    # 计算并保存帕累托前沿信息
     weighted_rmse_all = filtering.compute_weighted_rmse_all(
         absorption_spectra,
         wavelengths,
@@ -123,53 +134,84 @@ def run_inference(args, load_parameters=None, load_model=None):
     )
     total_thickness = filtering.compute_total_thickness(thicknesses)
     pareto_indices = filtering.calculate_pareto_front(weighted_rmse_all, total_thickness)
-    pareto_dir = visualization.save_pareto_results(save_dir, weighted_rmse_all, total_thickness, pareto_indices)
-    pareto_rmse = weighted_rmse_all[pareto_indices]
-    visualization.save_pareto_samples(
-        save_dir, wavelengths, absorption_spectra, thicknesses, P, pareto_indices, pareto_rmse, target, params
+    weighted_rmse_all_cpu = _to_numpy(weighted_rmse_all)
+    total_thickness_cpu = _to_numpy(total_thickness)
+    pareto_indices_cpu = pareto_indices.detach().cpu().numpy()
+    pareto_dir = visualization.save_pareto_results(
+        save_dir,
+        weighted_rmse_all_cpu,
+        total_thickness_cpu,
+        pareto_indices_cpu,
     )
 
-    # 分析帕累托样本的厚度和层数分布
-    if pareto_indices.size > 0:
-        print(f"Analyzing distribution of {len(pareto_indices)} Pareto front samples...")
-        pareto_thicknesses = thicknesses[pareto_indices]
-        pareto_P = P[pareto_indices]
-        analyze_inference_distribution(pareto_thicknesses, pareto_P, pareto_dir, prefix="pareto_samples")
+    pareto_rmse = weighted_rmse_all.index_select(0, pareto_indices)
+    pareto_absorption = _to_numpy(absorption_spectra.index_select(0, pareto_indices))
+    pareto_thicknesses = thicknesses.index_select(0, pareto_indices).detach().cpu()
+    pareto_probs = P.index_select(0, pareto_indices).detach().cpu()
+    if pareto_indices.numel() > 0:
+        visualization.save_pareto_samples(
+            save_dir,
+            wavelengths_cpu,
+            pareto_absorption,
+            pareto_thicknesses,
+            pareto_probs,
+            list(range(pareto_indices.numel())),
+            _to_numpy(pareto_rmse),
+            target_cpu,
+            params,
+            original_indices=pareto_indices_cpu,
+        )
+
+    if pareto_indices.numel() > 0:
+        print(f"Analyzing distribution of {pareto_indices.numel()} Pareto front samples...")
+        analyze_inference_distribution(pareto_thicknesses, pareto_probs, pareto_dir, prefix="pareto_samples")
     else:
         print("No Pareto front samples to analyze")
 
-    # 计算 Q 值（最佳样本与帕累托样本）
     best_q = qfactor.compute_q_for_indices(
-        wavelengths, absorption_spectra, best_indices, args.target_center, args.q_eval_window
+        wavelengths,
+        absorption_spectra,
+        best_indices,
+        args.target_center,
+        args.q_eval_window,
     )
     qfactor.save_q_report(os.path.join(save_dir, "best_samples_q.txt"), best_q, "Best Samples Q")
 
     pareto_q = qfactor.compute_q_for_indices(
-        wavelengths, absorption_spectra, pareto_indices, args.target_center, args.q_eval_window
+        wavelengths,
+        absorption_spectra,
+        pareto_indices,
+        args.target_center,
+        args.q_eval_window,
     )
     qfactor.save_q_report(os.path.join(pareto_dir, "pareto_samples_q.txt"), pareto_q, "Pareto Samples Q")
 
     if args.visualize:
         fig = visualization.visualize_best_samples(
-            wavelengths, absorption_spectra, best_indices, best_rmse, target
+            wavelengths_cpu,
+            best_absorption,
+            list(range(best_indices.numel())),
+            best_rmse_cpu.numpy(),
+            target_cpu,
+            original_indices=best_indices_cpu.numpy(),
         )
         fig.show()
-        pareto_fig = visualization.plot_pareto_front(weighted_rmse_all, total_thickness, pareto_indices)
+        pareto_fig = visualization.plot_pareto_front(weighted_rmse_all_cpu, total_thickness_cpu, pareto_indices_cpu)
         pareto_fig.show()
 
     print("Done!")
     return {
-        "wavelengths": wavelengths,
-        "thicknesses": thicknesses,
-        "refractive_indices": refractive_indices,
-        "probs": P,
-        "absorption_spectra": absorption_spectra,
-        "target": target,
-        "best_indices": best_indices,
-        "best_rmse": best_rmse,
-        "weighted_rmse_all": weighted_rmse_all,
-        "total_thickness": total_thickness,
-        "pareto_indices": pareto_indices,
+        "wavelengths": wavelengths.detach().cpu(),
+        "thicknesses": thicknesses.detach().cpu(),
+        "refractive_indices": None,
+        "probs": P.detach().cpu(),
+        "absorption_spectra": absorption_spectra.detach().cpu(),
+        "target": target.detach().cpu(),
+        "best_indices": best_indices_cpu,
+        "best_rmse": best_rmse_cpu,
+        "weighted_rmse_all": torch.as_tensor(weighted_rmse_all_cpu),
+        "total_thickness": torch.as_tensor(total_thickness_cpu),
+        "pareto_indices": torch.as_tensor(pareto_indices_cpu, dtype=torch.long),
         "best_q": best_q,
         "pareto_q": pareto_q,
     }

@@ -136,6 +136,17 @@ def load_parameters(config_path, device):
         params.M_materials = params.n_database.size(0)
         print(f"Using materials: {', '.join(params.materials)}")
 
+    metal_database = MatDatabase([params.metal_name])
+    metal_n_database, metal_k_database = metal_database.interp_wv(
+        2 * np.pi / params.k, [params.metal_name], False
+    )
+    params.metal_n_database = metal_n_database.squeeze(0)
+    params.metal_k_database = metal_k_database.squeeze(0)
+    params.metal_refractive_indices = (
+        params.metal_n_database.to(device=device) + 1j * params.metal_k_database.to(device=device)
+    )
+    print(f"Using bottom metal: {params.metal_name}")
+
     return params
 
 

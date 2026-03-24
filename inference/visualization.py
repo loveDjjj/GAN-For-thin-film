@@ -7,9 +7,11 @@ import pandas as pd
 import numpy as np
 
 
-def visualize_best_samples(wavelengths, absorption_spectra, best_indices, best_rmse, target):
+def visualize_best_samples(wavelengths, absorption_spectra, best_indices, best_rmse, target, original_indices=None):
     """Visualize the best samples compared to target."""
     num_samples = len(best_indices)
+    if original_indices is None:
+        original_indices = best_indices
 
     fig, axes = plt.subplots(num_samples, 1, figsize=(10, 3 * num_samples))
     if num_samples == 1:
@@ -17,12 +19,13 @@ def visualize_best_samples(wavelengths, absorption_spectra, best_indices, best_r
 
     for i in range(num_samples):
         sample_idx = best_indices[i]
+        original_idx = original_indices[i]
         rmse = best_rmse[i]
 
         axes[i].plot(wavelengths, absorption_spectra[sample_idx], 'b-', label='Generated')
         axes[i].plot(wavelengths, target, 'r--', label='Target Lorentzian')
 
-        axes[i].set_title(f'Best Sample {i+1} (Index: {sample_idx}, RMSE: {rmse:.6f})')
+        axes[i].set_title(f'Best Sample {i+1} (Index: {original_idx}, RMSE: {rmse:.6f})')
         axes[i].set_xlabel('Wavelength (μm)')
         axes[i].set_ylabel('Absorption')
         axes[i].grid(True)
@@ -33,8 +36,10 @@ def visualize_best_samples(wavelengths, absorption_spectra, best_indices, best_r
 
 
 def save_best_results(output_dir, wavelengths, thicknesses, P, absorption_spectra,
-                      best_indices, best_rmse, target, params):
+                      best_indices, best_rmse, target, params, original_indices=None):
     """Save best samples to files."""
+    if original_indices is None:
+        original_indices = best_indices
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     save_dir = os.path.join(output_dir, f"best_samples_{timestamp}")
     os.makedirs(save_dir, exist_ok=True)
@@ -45,6 +50,7 @@ def save_best_results(output_dir, wavelengths, thicknesses, P, absorption_spectr
     target_data.to_excel(os.path.join(save_dir, 'target_lorentzian.xlsx'), index=False)
 
     for i, idx in enumerate(best_indices):
+        original_idx = original_indices[i]
         absorption_data = pd.DataFrame()
         absorption_data['Wavelength (μm)'] = wavelengths
         absorption_data['Absorption'] = absorption_spectra[idx]
@@ -56,7 +62,7 @@ def save_best_results(output_dir, wavelengths, thicknesses, P, absorption_spectr
         structure_path = os.path.join(save_dir, f'best_sample_{i+1}_structure.txt')
 
         with open(structure_path, 'w') as f:
-            f.write(f"Structure Information for Best Sample {i+1} (Original Index: {idx})\n")
+            f.write(f"Structure Information for Best Sample {i+1} (Original Index: {original_idx})\n")
             f.write(f"RMSE with Target: {best_rmse[i]:.6f}\n")
             f.write("=" * 60 + "\n\n")
 
@@ -92,7 +98,14 @@ def save_best_results(output_dir, wavelengths, thicknesses, P, absorption_spectr
                     f"(Probability: {dominant_prob:.6f})\n"
                 )
 
-    fig = visualize_best_samples(wavelengths, absorption_spectra, best_indices, best_rmse, target)
+    fig = visualize_best_samples(
+        wavelengths,
+        absorption_spectra,
+        best_indices,
+        best_rmse,
+        target,
+        original_indices=original_indices,
+    )
     plt.savefig(os.path.join(save_dir, 'best_samples_comparison.png'), dpi=300)
     plt.close(fig)
 
@@ -137,13 +150,16 @@ def save_pareto_results(base_dir, weighted_rmse, total_thickness, pareto_indices
 
 
 def save_pareto_samples(base_dir, wavelengths, absorption_spectra, thicknesses, P,
-                        pareto_indices, pareto_rmse, target, params):
+                        pareto_indices, pareto_rmse, target, params, original_indices=None):
     """Save Pareto front samples' spectra and structures, with comparison plot."""
+    if original_indices is None:
+        original_indices = pareto_indices
     pareto_dir = os.path.join(base_dir, 'pareto_front')
     os.makedirs(pareto_dir, exist_ok=True)
 
     # 保存每个帕累托样本的光谱和结构
     for i, idx in enumerate(pareto_indices):
+        original_idx = original_indices[i]
         absorption_data = pd.DataFrame()
         absorption_data['Wavelength (μm)'] = wavelengths
         absorption_data['Absorption'] = absorption_spectra[idx]
@@ -154,7 +170,7 @@ def save_pareto_samples(base_dir, wavelengths, absorption_spectra, thicknesses, 
 
         structure_path = os.path.join(pareto_dir, f'pareto_sample_{i+1}_structure.txt')
         with open(structure_path, 'w') as f:
-            f.write(f"Pareto Sample {i+1} (Original Index: {idx})\n")
+            f.write(f"Pareto Sample {i+1} (Original Index: {original_idx})\n")
             f.write(f"Weighted RMSE: {pareto_rmse[i]:.6f}\n")
             f.write("=" * 60 + "\n\n")
 
@@ -190,7 +206,14 @@ def save_pareto_samples(base_dir, wavelengths, absorption_spectra, thicknesses, 
                 )
 
     # 统一绘制帕累托样本光谱
-    fig = visualize_best_samples(wavelengths, absorption_spectra, pareto_indices, pareto_rmse, target)
+    fig = visualize_best_samples(
+        wavelengths,
+        absorption_spectra,
+        pareto_indices,
+        pareto_rmse,
+        target,
+        original_indices=original_indices,
+    )
     fig.savefig(os.path.join(pareto_dir, 'pareto_samples_comparison.png'), dpi=300)
     plt.close(fig)
     return pareto_dir

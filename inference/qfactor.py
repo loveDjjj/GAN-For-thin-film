@@ -1,111 +1,187 @@
-import numpy as np
 import os
+
+import torch
+
+
+def _ensure_tensor(value, device=None, dtype=None):
+    """Convert value to torch tensor, preserving tensors already on device."""
+    if torch.is_tensor(value):
+        if device is not None or dtype is not None:
+            return value.to(device=device if device is not None else value.device, dtype=dtype or value.dtype)
+        return value
+    return torch.as_tensor(value, device=device, dtype=dtype)
+
+
+def _safe_delta(delta, eps):
+    replacement = torch.where(delta >= 0, torch.full_like(delta, eps), torch.full_like(delta, -eps))
+    return torch.where(delta.abs() < eps, replacement, delta)
+
+
+def compute_q_for_spectra(wavelengths, absorption_spectra, center, half_window, eps=1e-12):
+    """Compute Q-factor for a batch of spectra on GPU with peak search limited to a target window."""
+    absorption_spectra = _ensure_tensor(absorption_spectra, dtype=torch.float32)
+    if absorption_spectra.ndim == 1:
+        absorption_spectra = absorption_spectra.unsqueeze(0)
+    if absorption_spectra.ndim != 2:
+        raise ValueError("absorption_spectra must have shape [batch_size, num_wavelengths]")
+
+    wavelengths = _ensure_tensor(
+        wavelengths,
+        device=absorption_spectra.device,
+        dtype=absorption_spectra.dtype,
+    ).flatten()
+    if wavelengths.numel() != absorption_spectra.shape[1]:
+        raise ValueError("wavelengths length must match absorption_spectra.shape[1]")
+
+    window_mask = (wavelengths >= center - half_window) & (wavelengths <= center + half_window)
+    if not window_mask.any():
+        empty = torch.zeros(absorption_spectra.shape[0], device=absorption_spectra.device, dtype=absorption_spectra.dtype)
+        return {
+            "q_values": empty,
+            "peak_wavelengths": torch.full_like(empty, float("nan")),
+            "peak_absorptions": torch.zeros_like(empty),
+            "left_wavelengths": torch.full_like(empty, float("nan")),
+            "right_wavelengths": torch.full_like(empty, float("nan")),
+            "valid_mask": torch.zeros(absorption_spectra.shape[0], dtype=torch.bool, device=absorption_spectra.device),
+        }
+
+    masked_absorption = torch.where(window_mask.unsqueeze(0), absorption_spectra, torch.full_like(absorption_spectra, -torch.inf))
+    peak_indices = torch.argmax(masked_absorption, dim=1)
+    peak_absorptions = absorption_spectra.gather(1, peak_indices.unsqueeze(1)).squeeze(1)
+    peak_wavelengths = wavelengths[peak_indices]
+    half_max = peak_absorptions * 0.5
+
+    num_wavelengths = absorption_spectra.shape[1]
+    indices = torch.arange(num_wavelengths, device=absorption_spectra.device).unsqueeze(0).expand(absorption_spectra.shape[0], -1)
+
+    left_candidates = torch.where(
+        (indices < peak_indices.unsqueeze(1)) & (absorption_spectra <= half_max.unsqueeze(1)),
+        indices,
+        torch.full_like(indices, -1),
+    )
+    left_indices = left_candidates.max(dim=1).values
+
+    right_candidates = torch.where(
+        (indices > peak_indices.unsqueeze(1)) & (absorption_spectra <= half_max.unsqueeze(1)),
+        indices,
+        torch.full_like(indices, num_wavelengths),
+    )
+    right_indices = right_candidates.min(dim=1).values
+
+    left_wavelengths = torch.full_like(peak_wavelengths, float("nan"))
+    right_wavelengths = torch.full_like(peak_wavelengths, float("nan"))
+    q_values = torch.zeros_like(peak_wavelengths)
+
+    valid_mask = (
+        window_mask.any()
+        & (peak_absorptions > 0)
+        & (left_indices >= 0)
+        & (right_indices < num_wavelengths)
+        & (right_indices > left_indices)
+    )
+
+    if valid_mask.any():
+        valid_rows = torch.where(valid_mask)[0]
+        left_idx = left_indices[valid_rows]
+        right_idx = right_indices[valid_rows]
+        half_max_valid = half_max[valid_rows]
+
+        left_x0 = wavelengths[left_idx]
+        left_x1 = wavelengths[left_idx + 1]
+        left_y0 = absorption_spectra[valid_rows, left_idx]
+        left_y1 = absorption_spectra[valid_rows, left_idx + 1]
+        left_delta = _safe_delta(left_y1 - left_y0, eps)
+        interpolated_left = left_x0 + (left_x1 - left_x0) * (half_max_valid - left_y0) / left_delta
+
+        right_x0 = wavelengths[right_idx - 1]
+        right_x1 = wavelengths[right_idx]
+        right_y0 = absorption_spectra[valid_rows, right_idx - 1]
+        right_y1 = absorption_spectra[valid_rows, right_idx]
+        right_delta = _safe_delta(right_y1 - right_y0, eps)
+        interpolated_right = right_x0 + (right_x1 - right_x0) * (half_max_valid - right_y0) / right_delta
+
+        fwhm = interpolated_right - interpolated_left
+        current_valid = fwhm > eps
+
+        left_wavelengths[valid_rows] = interpolated_left
+        right_wavelengths[valid_rows] = interpolated_right
+        q_values[valid_rows] = torch.where(
+            current_valid,
+            peak_wavelengths[valid_rows] / fwhm.clamp_min(eps),
+            torch.zeros_like(fwhm),
+        )
+        valid_mask[valid_rows] = current_valid
+
+    q_values = torch.nan_to_num(q_values, nan=0.0, posinf=0.0, neginf=0.0)
+    return {
+        "q_values": q_values,
+        "peak_wavelengths": peak_wavelengths,
+        "peak_absorptions": peak_absorptions,
+        "left_wavelengths": left_wavelengths,
+        "right_wavelengths": right_wavelengths,
+        "valid_mask": valid_mask,
+    }
 
 
 def compute_q_for_spectrum(wavelengths, absorption, center, half_window):
-    """
-    Compute Q-factor within [center - half_window, center + half_window].
-    If no data/peak in that window, return q=0.
-    """
-    window_mask = (wavelengths >= center - half_window) & (wavelengths <= center + half_window)
-    indices_in_window = np.where(window_mask)[0]
-    if indices_in_window.size == 0:
-        return {
-            "q": 0.0,
-            "peak_wavelength": None,
-            "peak_absorption": None,
-            "left_wavelength": None,
-            "right_wavelength": None,
-        }
-
-    # Peak search in window
-    peak_idx = indices_in_window[np.argmax(absorption[indices_in_window])]
-    peak_wavelength = wavelengths[peak_idx]
-    peak_absorption = absorption[peak_idx]
-
-    # If peak_absorption is non-positive, treat as invalid
-    if peak_absorption <= 0:
-        return {
-            "q": 0.0,
-            "peak_wavelength": peak_wavelength,
-            "peak_absorption": peak_absorption,
-            "left_wavelength": None,
-            "right_wavelength": None,
-        }
-
-    half_max = peak_absorption / 2.0
-
-    # Find left half-max crossing
-    left_idx = None
-    for i in range(peak_idx, -1, -1):
-        if absorption[i] <= half_max:
-            left_idx = i
-            break
-
-    # Find right half-max crossing
-    right_idx = None
-    for i in range(peak_idx, len(wavelengths)):
-        if absorption[i] <= half_max:
-            right_idx = i
-            break
-
-    if left_idx is None or right_idx is None or right_idx == left_idx:
-        return {
-            "q": 0.0,
-            "peak_wavelength": peak_wavelength,
-            "peak_absorption": peak_absorption,
-            "left_wavelength": None,
-            "right_wavelength": None,
-        }
-
-    # Linear interpolation for more accurate half-max points
-    if left_idx < peak_idx:
-        left_wavelength = wavelengths[left_idx] + (wavelengths[left_idx + 1] - wavelengths[left_idx]) * (
-            (half_max - absorption[left_idx]) / (absorption[left_idx + 1] - absorption[left_idx] + 1e-12)
-        )
-    else:
-        left_wavelength = wavelengths[left_idx]
-
-    if right_idx > peak_idx:
-        right_wavelength = wavelengths[right_idx - 1] + (wavelengths[right_idx] - wavelengths[right_idx - 1]) * (
-            (half_max - absorption[right_idx - 1]) / (absorption[right_idx] - absorption[right_idx - 1] + 1e-12)
-        )
-    else:
-        right_wavelength = wavelengths[right_idx]
-
-    fwhm = right_wavelength - left_wavelength
-    q = peak_wavelength / fwhm if fwhm > 0 else 0.0
-
+    """Compute Q-factor for one spectrum using the batched torch implementation."""
+    results = compute_q_for_spectra(wavelengths, absorption, center, half_window)
+    peak_wavelength = results["peak_wavelengths"][0]
+    peak_absorption = results["peak_absorptions"][0]
+    left_wavelength = results["left_wavelengths"][0]
+    right_wavelength = results["right_wavelengths"][0]
     return {
-        "q": float(q),
-        "peak_wavelength": float(peak_wavelength),
-        "peak_absorption": float(peak_absorption),
-        "left_wavelength": float(left_wavelength),
-        "right_wavelength": float(right_wavelength),
+        "q": float(results["q_values"][0].item()),
+        "peak_wavelength": None if torch.isnan(peak_wavelength) else float(peak_wavelength.item()),
+        "peak_absorption": float(peak_absorption.item()),
+        "left_wavelength": None if torch.isnan(left_wavelength) else float(left_wavelength.item()),
+        "right_wavelength": None if torch.isnan(right_wavelength) else float(right_wavelength.item()),
     }
 
 
 def compute_q_for_indices(wavelengths, absorption_spectra, indices, center, half_window):
-    """Compute Q for a list of sample indices."""
-    results = []
-    for idx in indices:
-        q_info = compute_q_for_spectrum(wavelengths, absorption_spectra[idx], center, half_window)
-        q_info["index"] = int(idx)
-        results.append(q_info)
-    return results
+    """Compute Q for a list of sample indices with batched torch kernels."""
+    indices = _ensure_tensor(indices, dtype=torch.long)
+    if indices.numel() == 0:
+        return []
+
+    absorption_spectra = _ensure_tensor(absorption_spectra, device=indices.device if torch.is_tensor(absorption_spectra) else None)
+    selected_absorption = absorption_spectra.index_select(0, indices.to(device=absorption_spectra.device))
+    results = compute_q_for_spectra(wavelengths, selected_absorption, center, half_window)
+
+    records = []
+    q_values = results["q_values"].detach().cpu()
+    peak_wavelengths = results["peak_wavelengths"].detach().cpu()
+    peak_absorptions = results["peak_absorptions"].detach().cpu()
+    left_wavelengths = results["left_wavelengths"].detach().cpu()
+    right_wavelengths = results["right_wavelengths"].detach().cpu()
+    index_values = indices.detach().cpu()
+
+    for row_index, original_index in enumerate(index_values.tolist()):
+        records.append(
+            {
+                "index": int(original_index),
+                "q": float(q_values[row_index].item()),
+                "peak_wavelength": None if torch.isnan(peak_wavelengths[row_index]) else float(peak_wavelengths[row_index].item()),
+                "peak_absorption": float(peak_absorptions[row_index].item()),
+                "left_wavelength": None if torch.isnan(left_wavelengths[row_index]) else float(left_wavelengths[row_index].item()),
+                "right_wavelength": None if torch.isnan(right_wavelengths[row_index]) else float(right_wavelengths[row_index].item()),
+            }
+        )
+    return records
 
 
 def save_q_report(path, q_results, title="Q Report"):
     """Save Q-factor results to a txt file."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(f"{title}\n")
-        f.write("=" * 60 + "\n\n")
-        for i, res in enumerate(q_results, 1):
-            f.write(f"Sample {i} (Original Index: {res.get('index', 'N/A')})\n")
-            f.write(f"Q: {res['q']:.4f}\n")
-            f.write(f"Peak Wavelength: {res.get('peak_wavelength')}\n")
-        f.write(f"Peak Absorption: {res.get('peak_absorption')}\n")
-        f.write(f"Left Half-Max: {res.get('left_wavelength')}\n")
-        f.write(f"Right Half-Max: {res.get('right_wavelength')}\n")
-        f.write("-" * 40 + "\n")
+    with open(path, "w", encoding="utf-8") as file:
+        file.write(f"{title}\n")
+        file.write("=" * 60 + "\n\n")
+        for result_index, result in enumerate(q_results, 1):
+            file.write(f"Sample {result_index} (Original Index: {result.get('index', 'N/A')})\n")
+            file.write(f"Q: {result['q']:.4f}\n")
+            file.write(f"Peak Wavelength: {result.get('peak_wavelength')}\n")
+            file.write(f"Peak Absorption: {result.get('peak_absorption')}\n")
+            file.write(f"Left Half-Max: {result.get('left_wavelength')}\n")
+            file.write(f"Right Half-Max: {result.get('right_wavelength')}\n")
+            file.write("-" * 40 + "\n")
