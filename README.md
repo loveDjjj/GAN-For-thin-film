@@ -32,6 +32,7 @@ infer.py
 calculate_q_factor.py
 optimize_structure.py
 analyze_gan_samoples.py
+analyze_high_quality_solutions.py
 requirements.txt
 ```
 
@@ -47,6 +48,7 @@ requirements.txt
 - `model/net.py`：生成器与判别器定义。
 - `model/TMM/`：TMM 光学计算。
 - `data/myindex.py`：材料 `.mat` 文件读取与折射率插值。
+- `analyze_high_quality_solutions.py`：对 `high_quality_solutions.csv` 做结构序列去重，并绘制波长-Q 颜色散点图。
 - `config/training_config.yaml`：训练所需结构、材料、光学、训练和可视化参数。
 - `config/inference_config.yaml`：推理所需模型路径、训练配置路径、筛选参数和输出目录。
 
@@ -94,6 +96,12 @@ python optimize_structure.py --file generated_samples/<run>/best_sample_1_struct
 python analyze_gan_samoples.py --model_path <generator_final.pth> --config_path config/training_config.yaml --output_dir analysis_results --max_samples 100000 --batch_size 500 --alpha 200
 ```
 
+优质解去重与可视化：
+
+```bash
+python analyze_high_quality_solutions.py --csv_path results/spectral_gan/<run>/high_quality_solutions/summary/high_quality_solutions.csv
+```
+
 ## 配置说明
 
 - `config/training_config.yaml`
@@ -120,6 +128,7 @@ python analyze_gan_samoples.py --model_path <generator_final.pth> --config_path 
   - `calculate_q_factor.py` -> `q_results/`
   - `optimize_structure.py` -> `optimized_results/`
   - `analyze_gan_samoples.py` -> `analysis_results/`
+  - `analyze_high_quality_solutions.py` -> `<csv_dir>/deduplicated_analysis/`
 
 ## 阅读顺序
 

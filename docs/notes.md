@@ -1,14 +1,14 @@
 # Notes
 
-## 需求（2026-03-24）
-将当前 main 分支的 TMM 金属层计算逻辑改回与 master 一致，同时保留一次缓存到 GPU 的实现方式，并统一使用 complex128。
+## 需求（2026-03-25）
+新增一个脚本，用于读取 `high_quality_solutions.csv`，把优质解结构转成整数 nm 的材料序列后去重，并输出去重 CSV 与波长-Q 颜色散点图。
 
 ## 验证
 ```bash
-python -m py_compile train.py infer.py model/TMM/optical_calculator.py
-git diff -- train.py infer.py model/TMM/optical_calculator.py docs/notes.md docs/logs/2026-03.md
+python -m py_compile analyze_high_quality_solutions.py
+git diff -- analyze_high_quality_solutions.py README.md docs/notes.md docs/logs/2026-03.md
 ```
 
 ## Git
 - branch: `main`
-- commit: `git commit -m "fix: restore master-compatible tmm metal interpolation"`
+- commit: `git commit -m "feat: add high-quality solution dedup and plotting script"`
