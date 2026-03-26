@@ -8,6 +8,9 @@ import pandas as pd
 from matplotlib import colors as mcolors
 
 
+ROUNDED_SEQUENCE_STEP_NM = 10
+
+
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Deduplicate and visualize collected high-quality solutions."
@@ -53,13 +56,19 @@ def quantize_thickness_nm(thickness_um):
     return int(np.floor(float(thickness_um) * 1000.0 + 1e-9))
 
 
-def build_structure_sequence(structure_payload):
+def round_thickness_to_step_nm(thickness_um, step_nm):
+    thickness_nm = float(thickness_um) * 1000.0
+    rounded_nm = np.floor(thickness_nm / float(step_nm) + 0.5) * float(step_nm)
+    return int(rounded_nm + 1e-9)
+
+
+def build_structure_sequence(structure_payload, thickness_to_nm):
     merged_layers = structure_payload.get("merged_layers") or []
     if merged_layers:
         sequence_items = []
         for layer in merged_layers:
             material = str(layer["material"])
-            thickness_nm = quantize_thickness_nm(layer["merged_thickness_um"])
+            thickness_nm = thickness_to_nm(layer["merged_thickness_um"])
             sequence_items.append(f"{material}_{thickness_nm}nm")
         return sequence_items
 
@@ -68,15 +77,24 @@ def build_structure_sequence(structure_payload):
         sequence_items = []
         for layer in original_layers:
             material = str(layer["dominant_material"])
-            thickness_nm = quantize_thickness_nm(layer["thickness_um"])
+            thickness_nm = thickness_to_nm(layer["thickness_um"])
             sequence_items.append(f"{material}_{thickness_nm}nm")
         return sequence_items
 
     return []
 
 
-def load_structure_sequences(csv_df, csv_path):
-    enriched_rows = []
+def compute_sequence_total_thickness_nm(structure_payload, thickness_to_nm):
+    merged_layers = structure_payload.get("merged_layers") or []
+    if merged_layers:
+        return int(sum(thickness_to_nm(layer["merged_thickness_um"]) for layer in merged_layers))
+
+    original_layers = structure_payload.get("original_layers") or []
+    return int(sum(thickness_to_nm(layer["thickness_um"]) for layer in original_layers))
+
+
+def load_structure_payloads(csv_df, csv_path):
+    structure_records = []
     missing_structure_count = 0
 
     for _, row in csv_df.iterrows():
@@ -93,28 +111,39 @@ def load_structure_sequences(csv_df, csv_path):
         with structure_path.open("r", encoding="utf-8") as file:
             structure_payload = json.load(file)
 
-        sequence_items = build_structure_sequence(structure_payload)
+        structure_records.append(
+            {
+                "row": row.to_dict(),
+                "sample_dir": str(sample_dir),
+                "structure_payload": structure_payload,
+            }
+        )
+
+    return structure_records, missing_structure_count
+
+
+def load_structure_sequences(structure_records, thickness_to_nm):
+    enriched_rows = []
+    missing_sequence_count = 0
+
+    for record in structure_records:
+        structure_payload = record["structure_payload"]
+        sequence_items = build_structure_sequence(structure_payload, thickness_to_nm)
         if not sequence_items:
-            missing_structure_count += 1
+            missing_sequence_count += 1
             continue
 
-        sequence_total_thickness_nm = int(
-            sum(quantize_thickness_nm(layer["merged_thickness_um"]) for layer in structure_payload.get("merged_layers", []))
-        )
-        if sequence_total_thickness_nm <= 0:
-            sequence_total_thickness_nm = int(
-                sum(quantize_thickness_nm(layer["thickness_um"]) for layer in structure_payload.get("original_layers", []))
-            )
+        sequence_total_thickness_nm = compute_sequence_total_thickness_nm(structure_payload, thickness_to_nm)
 
-        enriched_row = row.to_dict()
-        enriched_row["sample_dir"] = str(sample_dir)
+        enriched_row = dict(record["row"])
+        enriched_row["sample_dir"] = record["sample_dir"]
         enriched_row["structure_sequence"] = "[" + ", ".join(sequence_items) + "]"
         enriched_row["structure_sequence_key"] = "|".join(sequence_items)
         enriched_row["sequence_layer_count"] = len(sequence_items)
         enriched_row["sequence_total_thickness_nm"] = sequence_total_thickness_nm
         enriched_rows.append(enriched_row)
 
-    return pd.DataFrame(enriched_rows), missing_structure_count
+    return pd.DataFrame(enriched_rows), missing_sequence_count
 
 
 def deduplicate_sequences(sequence_df):
@@ -168,8 +197,7 @@ def deduplicate_sequences(sequence_df):
 
 def build_plot_dataframe(dedup_df):
     plot_df = dedup_df.copy()
-    plot_df = plot_df.sort_values(by=["peak_wavelength_um", "q_value"]).reset_index(drop=True)
-    return plot_df
+    return plot_df.sort_values(by=["peak_wavelength_um", "q_value"]).reset_index(drop=True)
 
 
 def scatter_with_marginals(
@@ -253,29 +281,33 @@ def scatter_with_marginals(
     plt.close(fig)
 
 
-def save_summary_json(output_dir, original_count, sequence_count, missing_structure_count):
+def save_summary_json(output_path, route_name, original_count, sequence_count, missing_structure_count):
     payload = {
+        "route_name": route_name,
         "original_solution_count": int(original_count),
         "deduplicated_sequence_count": int(sequence_count),
         "missing_structure_count": int(missing_structure_count),
     }
-    with (output_dir / "analysis_summary.json").open("w", encoding="utf-8") as file:
+    with output_path.open("w", encoding="utf-8") as file:
         json.dump(payload, file, indent=2, ensure_ascii=False)
 
 
-def main():
-    args = parse_args()
-    csv_path = Path(args.csv_path).resolve()
-    if not csv_path.exists():
-        raise FileNotFoundError(f"CSV file not found: {csv_path}")
-
-    output_dir = Path(args.output_dir).resolve() if args.output_dir else (csv_path.parent / "deduplicated_analysis")
+def run_analysis_route(
+    raw_df,
+    structure_records,
+    missing_structure_count,
+    output_dir,
+    q_threshold,
+    route_name,
+    thickness_to_nm,
+    title_prefix,
+):
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    raw_df = pd.read_csv(csv_path)
-    sequence_df, missing_structure_count = load_structure_sequences(raw_df, csv_path)
+    sequence_df, missing_sequence_count = load_structure_sequences(structure_records, thickness_to_nm)
+    total_missing_count = missing_structure_count + missing_sequence_count
     if sequence_df.empty:
-        raise RuntimeError("No valid structures were found. Please check sample_dir and structure.json paths.")
+        raise RuntimeError(f"No valid structures were found for route: {route_name}")
 
     sequence_df = sequence_df.sort_values(
         by=["peak_wavelength_um", "q_value"],
@@ -298,8 +330,8 @@ def main():
         output_path=absorption_plot_path,
         color_column="peak_absorption",
         color_label="Peak Absorption",
-        title="Unique High-Quality Structures: Wavelength vs Q (Color = Peak Absorption)",
-        q_threshold=args.q_threshold,
+        title=f"{title_prefix}: Wavelength vs Q (Color = Peak Absorption)",
+        q_threshold=q_threshold,
         cmap="jet",
         vmin=0.8,
         vmax=1.0,
@@ -309,8 +341,8 @@ def main():
         output_path=thickness_plot_path,
         color_column="total_thickness_um",
         color_label="Total Thickness (um)",
-        title="Unique High-Quality Structures: Wavelength vs Q (Color = Total Thickness)",
-        q_threshold=args.q_threshold,
+        title=f"{title_prefix}: Wavelength vs Q (Color = Total Thickness)",
+        q_threshold=q_threshold,
         cmap="viridis",
     )
 
@@ -326,25 +358,89 @@ def main():
         output_path=mse_plot_path,
         color_column="_lorentz_mse_plot",
         color_label="Lorentzian MSE",
-        title="Unique High-Quality Structures: Wavelength vs Q (Color = Lorentzian MSE)",
-        q_threshold=args.q_threshold,
+        title=f"{title_prefix}: Wavelength vs Q (Color = Lorentzian MSE)",
+        q_threshold=q_threshold,
         cmap="plasma_r",
         norm=mse_norm,
     )
 
+    summary_path = output_dir / "analysis_summary.json"
     save_summary_json(
-        output_dir=output_dir,
+        output_path=summary_path,
+        route_name=route_name,
         original_count=len(raw_df),
         sequence_count=len(dedup_df),
-        missing_structure_count=missing_structure_count,
+        missing_structure_count=total_missing_count,
     )
 
-    print(f"Annotated CSV saved to: {sequence_csv_path}")
-    print(f"Deduplicated CSV saved to: {dedup_csv_path}")
-    print(f"Absorption plot saved to: {absorption_plot_path}")
-    print(f"Thickness plot saved to: {thickness_plot_path}")
-    print(f"MSE plot saved to: {mse_plot_path}")
-    print(f"Summary JSON saved to: {output_dir / 'analysis_summary.json'}")
+    print(f"[{route_name}] Annotated CSV saved to: {sequence_csv_path}")
+    print(f"[{route_name}] Deduplicated CSV saved to: {dedup_csv_path}")
+    print(f"[{route_name}] Absorption plot saved to: {absorption_plot_path}")
+    print(f"[{route_name}] Thickness plot saved to: {thickness_plot_path}")
+    print(f"[{route_name}] MSE plot saved to: {mse_plot_path}")
+    print(f"[{route_name}] Summary JSON saved to: {summary_path}")
+
+    return {
+        "route_name": route_name,
+        "output_dir": str(output_dir),
+        "original_solution_count": int(len(raw_df)),
+        "deduplicated_sequence_count": int(len(dedup_df)),
+        "missing_structure_count": int(total_missing_count),
+    }
+
+
+def main():
+    args = parse_args()
+    csv_path = Path(args.csv_path).resolve()
+    if not csv_path.exists():
+        raise FileNotFoundError(f"CSV file not found: {csv_path}")
+
+    output_dir = Path(args.output_dir).resolve() if args.output_dir else (csv_path.parent / "deduplicated_analysis")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    raw_df = pd.read_csv(csv_path)
+    structure_records, missing_structure_count = load_structure_payloads(raw_df, csv_path)
+    if not structure_records:
+        raise RuntimeError("No valid structures were found. Please check sample_dir and structure.json paths.")
+
+    original_result = run_analysis_route(
+        raw_df=raw_df,
+        structure_records=structure_records,
+        missing_structure_count=missing_structure_count,
+        output_dir=output_dir,
+        q_threshold=args.q_threshold,
+        route_name="integer_nm",
+        thickness_to_nm=quantize_thickness_nm,
+        title_prefix="Unique High-Quality Structures",
+    )
+
+    rounded_output_dir = output_dir / "rounded_10nm"
+    rounded_result = run_analysis_route(
+        raw_df=raw_df,
+        structure_records=structure_records,
+        missing_structure_count=missing_structure_count,
+        output_dir=rounded_output_dir,
+        q_threshold=args.q_threshold,
+        route_name=f"rounded_{ROUNDED_SEQUENCE_STEP_NM}nm",
+        thickness_to_nm=lambda thickness_um: round_thickness_to_step_nm(
+            thickness_um,
+            step_nm=ROUNDED_SEQUENCE_STEP_NM,
+        ),
+        title_prefix=f"Unique High-Quality Structures (Rounded to {ROUNDED_SEQUENCE_STEP_NM} nm Sequence)",
+    )
+
+    routes_summary_path = output_dir / "analysis_routes_summary.json"
+    with routes_summary_path.open("w", encoding="utf-8") as file:
+        json.dump(
+            {
+                "routes": [original_result, rounded_result],
+            },
+            file,
+            indent=2,
+            ensure_ascii=False,
+        )
+
+    print(f"Routes summary JSON saved to: {routes_summary_path}")
 
 
 if __name__ == "__main__":
