@@ -134,12 +134,23 @@ def generate_peak_aligned_lorentzian_curves_torch(wavelengths, peak_wavelengths,
     return curves / max_values
 
 
-def compute_peak_lorentzian_mse_torch(wavelengths, absorption_spectra, peak_wavelengths, width):
-    """Compute per-sample MSE to a peak-aligned Lorentzian target in parallel."""
+def compute_peak_lorentzian_mse_torch(
+    wavelengths,
+    absorption_spectra,
+    peak_wavelengths,
+    width,
+    mse_key="mse_values",
+    rmse_key="rmse_values",
+):
+    """Compute per-sample MSE/RMSE to a peak-aligned Lorentzian target in parallel."""
     target_curves = generate_peak_aligned_lorentzian_curves_torch(wavelengths, peak_wavelengths, width)
     mse_values = torch.mean((absorption_spectra - target_curves) ** 2, dim=1)
     mse_values = torch.nan_to_num(mse_values, nan=0.0, posinf=0.0, neginf=0.0)
-    return {"mse_values": mse_values}
+    rmse_values = torch.sqrt(mse_values.clamp_min(0.0))
+    return {
+        mse_key: mse_values,
+        rmse_key: rmse_values,
+    }
 
 
 def compute_q_mse_metrics_torch(wavelengths, absorption_spectra, lorentz_width, eps=1e-12):
@@ -154,7 +165,7 @@ def compute_q_mse_metrics_torch(wavelengths, absorption_spectra, lorentz_width, 
     return {**q_results, **mse_results}
 
 
-def compute_fom_scores_torch(q_values, mse_values, valid_mask, q_ref, rmse_ref, weight):
+def compute_fom_scores_torch(q_values, rmse_values, valid_mask, q_ref, rmse_ref, weight):
     """Compute bounded sample-level FOM scores from Q and RMSE."""
     if q_ref <= 0:
         raise ValueError("fom_q_ref must be positive")
@@ -163,13 +174,12 @@ def compute_fom_scores_torch(q_values, mse_values, valid_mask, q_ref, rmse_ref, 
     if not 0.0 <= weight <= 1.0:
         raise ValueError("fom_weight must be between 0 and 1")
 
-    q_values = q_values.to(dtype=mse_values.dtype)
-    valid_mask = valid_mask.to(dtype=mse_values.dtype)
-    q_ref_tensor = torch.as_tensor(q_ref, device=mse_values.device, dtype=mse_values.dtype)
-    rmse_ref_tensor = torch.as_tensor(rmse_ref, device=mse_values.device, dtype=mse_values.dtype)
-    ln2 = torch.as_tensor(math.log(2.0), device=mse_values.device, dtype=mse_values.dtype)
+    q_values = q_values.to(dtype=rmse_values.dtype)
+    valid_mask = valid_mask.to(dtype=rmse_values.dtype)
+    q_ref_tensor = torch.as_tensor(q_ref, device=rmse_values.device, dtype=rmse_values.dtype)
+    rmse_ref_tensor = torch.as_tensor(rmse_ref, device=rmse_values.device, dtype=rmse_values.dtype)
+    ln2 = torch.as_tensor(math.log(2.0), device=rmse_values.device, dtype=rmse_values.dtype)
 
-    rmse_values = torch.sqrt(mse_values.clamp_min(0.0))
     q_score_values = 1.0 - torch.exp(-ln2 * q_values / q_ref_tensor)
     rmse_score_values = torch.exp(-ln2 * rmse_values / rmse_ref_tensor)
 
@@ -219,6 +229,7 @@ def summarize_q_results(
     lorentz_width,
     dominant_prob_threshold,
     fom_q_ref,
+    fom_lorentz_width,
     fom_rmse_ref,
     fom_weight,
 ):
@@ -226,6 +237,8 @@ def summarize_q_results(
     q_values = q_results["q_values"]
     mse_values = q_results["mse_values"]
     rmse_values = q_results["rmse_values"]
+    fom_lorentz_mse_values = q_results["fom_lorentz_mse_values"]
+    fom_lorentz_rmse_values = q_results["fom_lorentz_rmse_values"]
     fom_values = q_results["fom_values"]
     valid_mask = q_results["valid_mask"]
     fixed_layer_count = q_results["fixed_layer_count"].float()
@@ -243,6 +256,7 @@ def summarize_q_results(
         "lorentz_width": float(lorentz_width),
         "dominant_material_prob_threshold": float(dominant_prob_threshold),
         "fom_q_ref": float(fom_q_ref),
+        "fom_lorentz_width": float(fom_lorentz_width),
         "fom_rmse_ref": float(fom_rmse_ref),
         "fom_weight": float(fom_weight),
         "valid_count": int(valid_mask.sum().item()),
@@ -260,6 +274,10 @@ def summarize_q_results(
         "median_rmse": float(rmse_values.median().item()),
         "min_rmse": float(rmse_values.min().item()),
         "max_rmse": float(rmse_values.max().item()),
+        "mean_fom_lorentz_mse": float(fom_lorentz_mse_values.mean().item()),
+        "median_fom_lorentz_mse": float(fom_lorentz_mse_values.median().item()),
+        "mean_fom_lorentz_rmse": float(fom_lorentz_rmse_values.mean().item()),
+        "median_fom_lorentz_rmse": float(fom_lorentz_rmse_values.median().item()),
         "mean_fom": float(fom_values.mean().item()),
         "median_fom": float(fom_values.median().item()),
         "epoch_best_fom": float(fom_values.max().item()),
@@ -420,9 +438,14 @@ def _save_global_best_sample_update(
         f"alpha: {float(summary['alpha']):.6f}",
         f"sample_id: {sample_id}",
         f"evaluation_sample_index: {int(sample_index)}",
+        f"fom_lorentz_width: {float(getattr(params, 'q_eval_fom_lorentz_width', getattr(params, 'lorentz_width', 0.02))):.6f}",
         f"q_value: {float(q_results['q_values'][sample_index].item()):.6f}",
         f"lorentz_mse: {float(q_results['mse_values'][sample_index].item()):.8f}",
         f"lorentz_rmse: {float(q_results['rmse_values'][sample_index].item()):.8f}",
+        f"fom_lorentz_mse: {float(q_results['fom_lorentz_mse_values'][sample_index].item()):.8f}",
+        f"fom_lorentz_rmse: {float(q_results['fom_lorentz_rmse_values'][sample_index].item()):.8f}",
+        f"q_score: {float(q_results['q_score_values'][sample_index].item()):.8f}",
+        f"rmse_score: {float(q_results['rmse_score_values'][sample_index].item()):.8f}",
         f"fom: {float(q_results['fom_values'][sample_index].item()):.8f}",
         f"peak_wavelength_um: {float(q_results['peak_wavelengths'][sample_index].item()):.6f}",
         f"peak_absorption: {float(q_results['peak_absorptions'][sample_index].item()):.6f}",
@@ -509,6 +532,8 @@ def save_q_evaluation_epoch(q_results, summary, save_dir, materials):
     q_values = q_results["q_values"].detach().cpu().numpy()
     mse_values = q_results["mse_values"].detach().cpu().numpy()
     rmse_values = q_results["rmse_values"].detach().cpu().numpy()
+    fom_lorentz_mse_values = q_results["fom_lorentz_mse_values"].detach().cpu().numpy()
+    fom_lorentz_rmse_values = q_results["fom_lorentz_rmse_values"].detach().cpu().numpy()
     q_score_values = q_results["q_score_values"].detach().cpu().numpy()
     rmse_score_values = q_results["rmse_score_values"].detach().cpu().numpy()
     fom_values = q_results["fom_values"].detach().cpu().numpy()
@@ -533,6 +558,8 @@ def save_q_evaluation_epoch(q_results, summary, save_dir, materials):
             "q_value": q_values,
             "lorentz_mse": mse_values,
             "lorentz_rmse": rmse_values,
+            "fom_lorentz_mse": fom_lorentz_mse_values,
+            "fom_lorentz_rmse": fom_lorentz_rmse_values,
             "q_score": q_score_values,
             "rmse_score": rmse_score_values,
             "fom": fom_values,
@@ -938,6 +965,7 @@ def evaluate_generator_q(generator, params, device, alpha, epoch, save_dir, high
     fixed_material_noise = getattr(params, "fixed_q_eval_material_noise", None)
     dominant_prob_threshold = float(getattr(params, "q_eval_dominant_prob_threshold", 0.99))
     fom_q_ref = float(getattr(params, "q_eval_fom_q_ref", 200.0))
+    fom_lorentz_width = float(getattr(params, "q_eval_fom_lorentz_width", getattr(params, "lorentz_width", 0.02)))
     fom_rmse_ref = float(getattr(params, "q_eval_fom_rmse_ref", 0.05))
     fom_weight = float(getattr(params, "q_eval_fom_weight", 0.5))
 
@@ -973,9 +1001,19 @@ def evaluate_generator_q(generator, params, device, alpha, epoch, save_dir, high
                 lorentz_width=float(getattr(params, "lorentz_width", 0.02)),
             )
             batch_results.update(
+                compute_peak_lorentzian_mse_torch(
+                    wavelengths,
+                    absorption,
+                    batch_results["peak_wavelengths"],
+                    width=fom_lorentz_width,
+                    mse_key="fom_lorentz_mse_values",
+                    rmse_key="fom_lorentz_rmse_values",
+                )
+            )
+            batch_results.update(
                 compute_fom_scores_torch(
                     batch_results["q_values"],
-                    batch_results["mse_values"],
+                    batch_results["fom_lorentz_rmse_values"],
                     batch_results["valid_mask"],
                     q_ref=fom_q_ref,
                     rmse_ref=fom_rmse_ref,
@@ -1027,6 +1065,7 @@ def evaluate_generator_q(generator, params, device, alpha, epoch, save_dir, high
         lorentz_width=float(getattr(params, "lorentz_width", 0.02)),
         dominant_prob_threshold=dominant_prob_threshold,
         fom_q_ref=fom_q_ref,
+        fom_lorentz_width=fom_lorentz_width,
         fom_rmse_ref=fom_rmse_ref,
         fom_weight=fom_weight,
     )

@@ -1,18 +1,20 @@
 # Notes
 
 ## 需求（2026-04-01）
-在训练期 `q_evaluation` 中，新增实时的全局最优样本追踪保存：
+在训练期 `q_evaluation` 中，给 FOM 增加独立的 RMSE 计算路线：
 
-- 当 `global_max_q` 刷新时，新建一个带 epoch 的结构 `txt`、原始光谱 `csv` 和光谱 `png`。
-- 当 `global_best_fom` 刷新时，新建一个带 epoch 的结构 `txt`、原始光谱 `csv` 和光谱 `png`。
-- 不覆盖旧记录；每次出现新的全局最优，都在 `global_best_samples/` 下新增一组文件。
-- 光谱 CSV 只保留原始光谱主数据，即 `wavelength_um` 和对应的 `absorption`。
-- `global_best_fom_curve.csv/.png`、`global_max_q_curve.csv/.png` 这四个全局曲线文件继续保留。
-- 复用现有 `q_evaluation` 结果中的厚度、材料概率和吸收光谱，不额外增加一次生成与 TMM 计算。
+- 保留原有 `lorentz_mse/rmse`，继续用于 Q/MSE 评估图和原有统计。
+- 新增 `q_evaluation.fom_lorentz_width` 配置，专门用于 FOM 的峰值对齐 Lorentzian 宽度。
+- 基于该宽度重新生成 Lorentzian 目标，批量并行计算 `fom_lorentz_mse` 和 `fom_lorentz_rmse`。
+- FOM 的 `RMSE_score` 改为使用这条新的 `fom_lorentz_rmse`，不再直接使用原来的 `lorentz_rmse`。
+- 样本级 CSV、summary CSV 和全局最优结构 `txt` 需要把这套独立误差数据写出来。
 
 ## 涉及文件
+- `train.py`
 - `train/q_evaluator.py`
 - `train/high_quality_solution_collector.py`
+- `utils/config_loader.py`
+- `config/training_config.yaml`
 - `README.md`
 - `docs/notes.md`
 - `docs/logs/2026-03.md`
@@ -20,9 +22,9 @@
 ## 验证
 ```bash
 python -m py_compile train/q_evaluator.py train/high_quality_solution_collector.py train.py utils/config_loader.py
-git diff -- train/q_evaluator.py train/high_quality_solution_collector.py README.md docs/notes.md docs/logs/2026-03.md
+git diff -- train.py train/q_evaluator.py train/high_quality_solution_collector.py utils/config_loader.py config/training_config.yaml README.md docs/notes.md docs/logs/2026-03.md
 ```
 
 ## Git
 - branch: `main`
-- commit: `git commit -m "feat: save per-update global best q-eval files"`
+- commit: `git commit -m "feat: add dedicated fom rmse width to q evaluation"`

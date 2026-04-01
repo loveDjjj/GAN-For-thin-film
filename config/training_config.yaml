@@ -59,11 +59,13 @@ q_evaluation:
   num_samples: 1024
   dominant_material_prob_threshold: 0.95
   # FOM 评分:
-  # RMSE = sqrt(lorentz_mse)
+  # FOM 的 RMSE 单独基于 fom_lorentz_width 生成峰值对齐 Lorentzian 后计算，
+  # 不复用 optics.lorentz_width 对应的 lorentz_mse/rmse。
   # Q_score = 1 - exp(-ln(2) * Q / fom_q_ref)
   # RMSE_score = exp(-ln(2) * RMSE / fom_rmse_ref)
   # FOM = valid * (Q_score ^ fom_weight) * (RMSE_score ^ (1 - fom_weight))
   fom_q_ref: 200.0
+  fom_lorentz_width: 0.01
   fom_rmse_ref: 0.05
   fom_weight: 0.5
 
