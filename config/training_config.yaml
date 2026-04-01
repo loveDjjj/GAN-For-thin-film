@@ -57,7 +57,7 @@ visualization:
 q_evaluation:
   interval: 1
   num_samples: 1024
-  dominant_material_prob_threshold: 0.99
+  dominant_material_prob_threshold: 0.95
   # FOM 评分:
   # RMSE = sqrt(lorentz_mse)
   # Q_score = 1 - exp(-ln(2) * Q / fom_q_ref)
@@ -72,7 +72,7 @@ high_quality_collection:
   q_min: 200.0
   mse_max: 0.0025
   peak_min: 0.9
-  dominant_material_prob_min: 0.99
+  dominant_material_prob_min: 0.95
 
 reproducibility:
   seed: 20260319

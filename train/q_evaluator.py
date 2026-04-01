@@ -10,6 +10,8 @@ import torch
 from model.TMM.optical_calculator import calculate_reflection
 from train.high_quality_solution_collector import (
     build_high_quality_criteria,
+    build_merged_layers,
+    build_original_layers,
     collect_high_quality_solutions_batch,
     initialize_high_quality_collection,
     update_high_quality_collection_summary,
@@ -308,6 +310,209 @@ def _build_layer_summary_dataframe(q_results, materials):
         rows.append(row)
 
     return pd.DataFrame(rows)
+
+
+def _append_dataframe(csv_path, dataframe):
+    """Append rows to a CSV while preserving existing history."""
+    if dataframe.empty:
+        return
+    dataframe.to_csv(csv_path, mode="a", header=not os.path.exists(csv_path), index=False)
+
+
+def _get_tracked_metric_best(csv_path):
+    """Return the best tracked metric value already persisted in a CSV log."""
+    if not os.path.exists(csv_path):
+        return None
+    existing_df = pd.read_csv(csv_path, usecols=["tracked_metric_value"])
+    if existing_df.empty:
+        return None
+    return float(existing_df["tracked_metric_value"].max())
+
+
+def _get_next_update_index(csv_path):
+    """Return the next monotonic update index for a tracked metric log."""
+    if not os.path.exists(csv_path):
+        return 1
+    existing_df = pd.read_csv(csv_path, usecols=["update_index"])
+    if existing_df.empty:
+        return 1
+    return int(existing_df["update_index"].max()) + 1
+
+
+def _save_global_best_sample_update(
+    tracked_metric_name,
+    tracked_metric_value,
+    previous_tracked_metric_value,
+    sample_index,
+    summary,
+    q_results,
+    wavelengths,
+    absorption_spectra,
+    thicknesses,
+    material_probabilities,
+    params,
+    save_dir,
+):
+    """Append structure and spectrum CSV rows for a newly refreshed global-best sample."""
+    tracking_dir = os.path.join(save_dir, "global_best_samples")
+    os.makedirs(tracking_dir, exist_ok=True)
+
+    updates_path = os.path.join(tracking_dir, f"{tracked_metric_name}_updates.csv")
+    structure_layers_path = os.path.join(tracking_dir, f"{tracked_metric_name}_structure_layers.csv")
+    merged_layers_path = os.path.join(tracking_dir, f"{tracked_metric_name}_merged_layers.csv")
+    spectra_path = os.path.join(tracking_dir, f"{tracked_metric_name}_spectra.csv")
+
+    update_index = _get_next_update_index(updates_path)
+    sample_id = f"epoch_{int(summary['epoch']):04d}_sample_{int(sample_index):05d}"
+    sample_thicknesses = thicknesses[sample_index].detach().cpu()
+    sample_material_probs = material_probabilities[sample_index].detach().cpu()
+    sample_absorption = absorption_spectra[sample_index].detach().cpu()
+    sample_peak_wavelength = q_results["peak_wavelengths"][sample_index].detach().cpu().unsqueeze(0)
+    sample_target = generate_peak_aligned_lorentzian_curves_torch(
+        wavelengths.detach().cpu(),
+        sample_peak_wavelength,
+        float(getattr(params, "lorentz_width", 0.02)),
+    ).squeeze(0)
+
+    original_layers = build_original_layers(sample_thicknesses, sample_material_probs, params.materials)
+    merged_layers = build_merged_layers(sample_thicknesses, sample_material_probs, params.materials)
+    total_thickness_um = float(sample_thicknesses.sum().item())
+
+    sample_metrics = {
+        "q_value": float(q_results["q_values"][sample_index].item()),
+        "lorentz_mse": float(q_results["mse_values"][sample_index].item()),
+        "lorentz_rmse": float(q_results["rmse_values"][sample_index].item()),
+        "q_score": float(q_results["q_score_values"][sample_index].item()),
+        "rmse_score": float(q_results["rmse_score_values"][sample_index].item()),
+        "fom": float(q_results["fom_values"][sample_index].item()),
+        "valid": bool(q_results["valid_mask"][sample_index].item()),
+        "peak_wavelength_um": float(q_results["peak_wavelengths"][sample_index].item()),
+        "peak_absorption": float(q_results["peak_absorptions"][sample_index].item()),
+        "left_half_max_um": float(q_results["left_wavelengths"][sample_index].item()),
+        "right_half_max_um": float(q_results["right_wavelengths"][sample_index].item()),
+        "fwhm_um": float(q_results["fwhm"][sample_index].item()),
+        "fixed_layer_count": int(q_results["fixed_layer_count"][sample_index].item()),
+        "fixed_layer_ratio": float(q_results["fixed_layer_ratio"][sample_index].item()),
+        "is_fully_fixed": bool(q_results["fully_fixed_mask"][sample_index].item()),
+        "min_dominant_material_probability": float(
+            q_results["min_dominant_material_probability"][sample_index].item()
+        ),
+        "mean_dominant_material_probability": float(
+            q_results["mean_dominant_material_probability"][sample_index].item()
+        ),
+    }
+
+    base_metadata = {
+        "update_index": int(update_index),
+        "sample_id": sample_id,
+        "tracked_metric": tracked_metric_name,
+        "tracked_metric_value": float(tracked_metric_value),
+        "previous_tracked_metric_value": (
+            float(previous_tracked_metric_value)
+            if previous_tracked_metric_value is not None
+            else float("nan")
+        ),
+        "epoch": int(summary["epoch"]),
+        "alpha": float(summary["alpha"]),
+        "evaluation_sample_index": int(sample_index),
+        "total_thickness_um": total_thickness_um,
+        "merged_layer_count": int(len(merged_layers)),
+    }
+    base_metadata.update(sample_metrics)
+
+    updates_df = pd.DataFrame([base_metadata])
+    _append_dataframe(updates_path, updates_df)
+
+    structure_rows = []
+    for layer_record in original_layers:
+        row = dict(base_metadata)
+        row.update(
+            {
+                "layer_index": int(layer_record["layer_index"]),
+                "thickness_um": float(layer_record["thickness_um"]),
+                "thickness_nm": float(layer_record["thickness_um"] * 1000.0),
+                "dominant_material_index": int(layer_record["dominant_material_index"]),
+                "dominant_material": layer_record["dominant_material"],
+                "dominant_probability": float(layer_record["dominant_probability"]),
+            }
+        )
+        for material_name, probability in layer_record["material_probabilities"].items():
+            row[f"material_probability_{material_name}"] = float(probability)
+        structure_rows.append(row)
+    _append_dataframe(structure_layers_path, pd.DataFrame(structure_rows))
+
+    merged_rows = []
+    for merged_layer in merged_layers:
+        row = dict(base_metadata)
+        row.update(
+            {
+                "merged_layer_index": int(merged_layer["merged_layer_index"]),
+                "material_index": int(merged_layer["material_index"]),
+                "material": merged_layer["material"],
+                "start_layer": int(merged_layer["start_layer"]),
+                "end_layer": int(merged_layer["end_layer"]),
+                "original_layer_count": int(merged_layer["original_layer_count"]),
+                "merged_thickness_um": float(merged_layer["merged_thickness_um"]),
+                "merged_thickness_nm": float(merged_layer["merged_thickness_um"] * 1000.0),
+                "mean_dominant_probability": float(merged_layer["mean_dominant_probability"]),
+            }
+        )
+        merged_rows.append(row)
+    _append_dataframe(merged_layers_path, pd.DataFrame(merged_rows))
+
+    wavelengths_cpu = wavelengths.detach().cpu()
+    spectrum_length = int(wavelengths_cpu.numel())
+    spectra_columns = {
+        key: [value] * spectrum_length
+        for key, value in base_metadata.items()
+    }
+    spectra_columns.update(
+        {
+            "wavelength_um": wavelengths_cpu.numpy(),
+            "absorption": sample_absorption.numpy(),
+            "peak_aligned_lorentzian": sample_target.numpy(),
+        }
+    )
+    spectra_df = pd.DataFrame(spectra_columns)
+    _append_dataframe(spectra_path, spectra_df)
+
+    print(
+        f"Tracked {tracked_metric_name} update appended: "
+        f"epoch={summary['epoch']}, sample={sample_index}, value={tracked_metric_value:.6f}"
+    )
+
+
+def save_global_best_sample_histories(summary, q_results, wavelengths, absorption_spectra, thicknesses, material_probabilities, params, save_dir):
+    """Append CSV histories when global max Q or global best FOM improves."""
+    tracking_dir = os.path.join(save_dir, "global_best_samples")
+    os.makedirs(tracking_dir, exist_ok=True)
+
+    metric_specs = (
+        ("global_max_q", "q_values"),
+        ("global_best_fom", "fom_values"),
+    )
+    for tracked_metric_name, tensor_key in metric_specs:
+        metric_tensor = q_results[tensor_key]
+        sample_index = int(torch.argmax(metric_tensor).item())
+        tracked_metric_value = float(metric_tensor[sample_index].item())
+        updates_path = os.path.join(tracking_dir, f"{tracked_metric_name}_updates.csv")
+        previous_value = _get_tracked_metric_best(updates_path)
+
+        if previous_value is None or tracked_metric_value > previous_value:
+            _save_global_best_sample_update(
+                tracked_metric_name=tracked_metric_name,
+                tracked_metric_value=tracked_metric_value,
+                previous_tracked_metric_value=previous_value,
+                sample_index=sample_index,
+                summary=summary,
+                q_results=q_results,
+                wavelengths=wavelengths,
+                absorption_spectra=absorption_spectra,
+                thicknesses=thicknesses,
+                material_probabilities=material_probabilities,
+                params=params,
+                save_dir=save_dir,
+            )
 
 
 def save_q_evaluation_epoch(q_results, summary, save_dir, materials):
@@ -751,6 +956,9 @@ def evaluate_generator_q(generator, params, device, alpha, epoch, save_dir, high
     fom_weight = float(getattr(params, "q_eval_fom_weight", 0.5))
 
     collected_results = []
+    collected_absorption_spectra = []
+    collected_thicknesses = []
+    collected_material_probabilities = []
     high_quality_records = []
     generator_was_training = generator.training
     generator.eval()
@@ -795,6 +1003,9 @@ def evaluate_generator_q(generator, params, device, alpha, epoch, save_dir, high
                 )
             )
             collected_results.append(batch_results)
+            collected_absorption_spectra.append(absorption.detach().cpu())
+            collected_thicknesses.append(thicknesses.detach().cpu())
+            collected_material_probabilities.append(material_probabilities.detach().cpu())
 
             if high_quality_criteria["enabled"] and high_quality_dir is not None:
                 high_quality_records.extend(
@@ -819,6 +1030,9 @@ def evaluate_generator_q(generator, params, device, alpha, epoch, save_dir, high
         key: torch.cat([result[key].detach().cpu() for result in collected_results], dim=0)
         for key in collected_results[0]
     }
+    merged_absorption_spectra = torch.cat(collected_absorption_spectra, dim=0)
+    merged_thicknesses = torch.cat(collected_thicknesses, dim=0)
+    merged_material_probabilities = torch.cat(collected_material_probabilities, dim=0)
     summary = summarize_q_results(
         merged_results,
         epoch=epoch,
@@ -836,5 +1050,15 @@ def evaluate_generator_q(generator, params, device, alpha, epoch, save_dir, high
 
     summary["high_quality_count"] = int(collection_summary["new_high_quality_count"])
     summary["total_high_quality_count"] = int(collection_summary["total_high_quality_count"])
+    save_global_best_sample_histories(
+        summary=summary,
+        q_results=merged_results,
+        wavelengths=wavelengths,
+        absorption_spectra=merged_absorption_spectra,
+        thicknesses=merged_thicknesses,
+        material_probabilities=merged_material_probabilities,
+        params=params,
+        save_dir=save_dir,
+    )
     save_q_evaluation_epoch(merged_results, summary, save_dir, materials=list(getattr(params, "materials", [])))
     return summary

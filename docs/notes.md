@@ -1,32 +1,26 @@
 # Notes
 
 ## 需求（2026-04-01）
-在训练期 `q_evaluation` 统计中新增两条不影响原有图表的历史最优统计路线：
+在训练期 `q_evaluation` 中，新增实时的全局最优样本追踪保存：
 
-- 统计并绘制 `global_max_q`，表示截至当前 epoch 的全局最大 Q 随训练的累计变化。
-- 定义并统计 `FOM`，其中：
-  - `RMSE = sqrt(lorentz_mse)`
-  - `Q_score = 1 - exp(-ln(2) * Q / Q_ref)`
-  - `RMSE_score = exp(-ln(2) * RMSE / RMSE_ref)`
-  - `FOM = valid * (Q_score ^ w) * (RMSE_score ^ (1 - w))`
-- 统计并绘制 `global_best_fom`，表示截至当前 epoch 的全局最佳 FOM 随训练的累计变化。
-- 保存新增曲线对应的 CSV 数据，并将新增配置项与输出说明同步到文档。
+- 当 `global_max_q` 刷新时，追加保存该样本的汇总信息、逐层结构信息、合并层结构信息和光谱信息，全部为 CSV。
+- 当 `global_best_fom` 刷新时，追加保存该样本的汇总信息、逐层结构信息、合并层结构信息和光谱信息，全部为 CSV。
+- 以上历史记录都要保留，不覆盖旧记录；只有出现新的全局最优时才在 CSV 末尾追加。
+- 复用现有 `q_evaluation` 结果中的厚度、材料概率和吸收光谱，不额外增加一次生成与 TMM 计算。
 
 ## 涉及文件
-- `train.py`
 - `train/q_evaluator.py`
-- `utils/config_loader.py`
-- `config/training_config.yaml`
+- `train/high_quality_solution_collector.py`
 - `README.md`
 - `docs/notes.md`
 - `docs/logs/2026-03.md`
 
 ## 验证
 ```bash
-python -m py_compile train.py train/q_evaluator.py utils/config_loader.py
-git diff -- train.py train/q_evaluator.py utils/config_loader.py config/training_config.yaml README.md docs/notes.md docs/logs/2026-03.md
+python -m py_compile train/q_evaluator.py train/high_quality_solution_collector.py train.py utils/config_loader.py
+git diff -- train/q_evaluator.py train/high_quality_solution_collector.py README.md docs/notes.md docs/logs/2026-03.md
 ```
 
 ## Git
 - branch: `main`
-- commit: `git commit -m "feat: add global q and fom tracking to q evaluation"`
+- commit: `git commit -m "feat: persist global best q-eval sample histories"`

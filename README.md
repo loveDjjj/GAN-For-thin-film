@@ -121,6 +121,7 @@ python analyze_high_quality_solutions.py --csv_path results/spectral_gan/<run>/h
   - 分布图：`thickness_distribution_evolution_combined.png`、`merged_layers_distribution_evolution_combined.png`
   - Q/MSE 评估：`q_evaluation/`、`q_mse_evaluation_summary.csv`、`q_mse_evaluation_curves.png`、`q_mse_metrics_epoch_*.csv`、`global_max_q_curve.png`、`global_max_q_curve.csv`、`global_best_fom_curve.png`、`global_best_fom_curve.csv`
   - `q_mse_metrics_epoch_*.csv` 额外包含 `lorentz_rmse`、`q_score`、`rmse_score`、`fom` 四列；`q_mse_evaluation_summary.csv` 额外包含 `epoch_best_fom`、`global_max_q`、`global_best_fom`
+  - 全局最优样本追踪：`q_evaluation/global_best_samples/`，当出现新的 `global_max_q` 或 `global_best_fom` 时，会追加写入 `global_max_q_updates.csv`、`global_max_q_structure_layers.csv`、`global_max_q_merged_layers.csv`、`global_max_q_spectra.csv`、`global_best_fom_updates.csv`、`global_best_fom_structure_layers.csv`、`global_best_fom_merged_layers.csv`、`global_best_fom_spectra.csv`
   - 结构固定度统计：`q_evaluation/material_certainty_epoch_*.png`、`q_evaluation/material_certainty_curves.png`、`q_evaluation/material_certainty_layers_epoch_*.csv`、`q_evaluation/material_certainty_layer_history.csv`
   - 优质解收集：`high_quality_solutions/`、`summary/high_quality_solutions.csv`、`summary/high_quality_solution_distributions.png`、`epoch_*/epoch_*_sample_*/`
   - 可复现资产：`reproducibility/`、`training_target_center_pool.csv`、`q_eval_thickness_noise.pt`、`q_eval_material_noise.pt`

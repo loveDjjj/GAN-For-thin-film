@@ -41,7 +41,34 @@ def _generate_peak_aligned_lorentzian_curves_torch(wavelengths, peak_wavelengths
     return curves / max_values
 
 
-def _build_merged_layers(thickness_values, material_probs, materials):
+def build_original_layers(thickness_values, material_probs, materials):
+    """Build per-layer structure records with dominant-material metadata."""
+    material_indices = material_probs.argmax(dim=1)
+    dominant_probabilities = material_probs.max(dim=1).values
+    original_layers = []
+
+    for layer_index in range(thickness_values.shape[0]):
+        layer_probs = material_probs[layer_index]
+        dominant_material_index = int(material_indices[layer_index].item())
+        original_layers.append(
+            {
+                "layer_index": layer_index + 1,
+                "thickness_um": float(thickness_values[layer_index].item()),
+                "dominant_material_index": dominant_material_index,
+                "dominant_material": materials[dominant_material_index],
+                "dominant_probability": float(dominant_probabilities[layer_index].item()),
+                "material_probabilities": {
+                    material_name: float(layer_probs[material_index].item())
+                    for material_index, material_name in enumerate(materials)
+                },
+            }
+        )
+
+    return original_layers
+
+
+def build_merged_layers(thickness_values, material_probs, materials):
+    """Merge adjacent layers with the same dominant material."""
     material_indices = material_probs.argmax(dim=1)
     merged_layers = []
 
@@ -168,9 +195,6 @@ def collect_high_quality_solutions_batch(
     selected_absorption = absorption_spectra[selected_indices].detach().cpu()
     selected_thicknesses = thicknesses[selected_indices].detach().cpu()
     selected_material_probs = material_probabilities[selected_indices].detach().cpu()
-    selected_dominant_probs = dominant_probs[selected_indices].detach().cpu()
-    selected_dominant_indices = dominant_indices[selected_indices].detach().cpu()
-
     selected_q_values = q_mse_results["q_values"][selected_indices].detach().cpu()
     selected_mse_values = q_mse_results["mse_values"][selected_indices].detach().cpu()
     selected_peak_absorptions = q_mse_results["peak_absorptions"][selected_indices].detach().cpu()
@@ -192,11 +216,9 @@ def collect_high_quality_solutions_batch(
         sample_target = selected_targets[local_index]
         sample_thicknesses = selected_thicknesses[local_index]
         sample_material_probs = selected_material_probs[local_index]
-        sample_dominant_probs = selected_dominant_probs[local_index]
-        sample_dominant_indices = selected_dominant_indices[local_index]
 
         total_thickness = float(sample_thicknesses.sum().item())
-        merged_layers = _build_merged_layers(sample_thicknesses, sample_material_probs, params.materials)
+        merged_layers = build_merged_layers(sample_thicknesses, sample_material_probs, params.materials)
 
         spectrum_df = pd.DataFrame(
             {
@@ -232,22 +254,7 @@ def collect_high_quality_solutions_batch(
         fig.savefig(spectrum_plot_path, dpi=200, bbox_inches="tight")
         plt.close(fig)
 
-        original_layers = []
-        for layer_index in range(sample_thicknesses.shape[0]):
-            layer_probs = sample_material_probs[layer_index]
-            original_layers.append(
-                {
-                    "layer_index": layer_index + 1,
-                    "thickness_um": float(sample_thicknesses[layer_index].item()),
-                    "dominant_material_index": int(sample_dominant_indices[layer_index].item()),
-                    "dominant_material": params.materials[int(sample_dominant_indices[layer_index].item())],
-                    "dominant_probability": float(sample_dominant_probs[layer_index].item()),
-                    "material_probabilities": {
-                        material_name: float(layer_probs[material_index].item())
-                        for material_index, material_name in enumerate(params.materials)
-                    },
-                }
-            )
+        original_layers = build_original_layers(sample_thicknesses, sample_material_probs, params.materials)
 
         structure_payload = {
             "sample_id": sample_id,
