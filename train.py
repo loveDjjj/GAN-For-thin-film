@@ -118,6 +118,9 @@ def load_parameters(config_path, device):
     params.q_eval_dominant_prob_threshold = float(
         q_evaluation.get("dominant_material_prob_threshold", 0.99)
     )
+    params.q_eval_fom_q_ref = float(q_evaluation.get("fom_q_ref", 200.0))
+    params.q_eval_fom_rmse_ref = float(q_evaluation.get("fom_rmse_ref", 0.05))
+    params.q_eval_fom_weight = float(q_evaluation.get("fom_weight", 0.5))
 
     high_quality_collection = config.get("high_quality_collection", {})
     params.high_quality_collection_enabled = bool(high_quality_collection.get("enabled", False))
@@ -187,7 +190,10 @@ def load_parameters(config_path, device):
         f"interval={params.q_eval_interval}, "
         f"num_samples={params.q_eval_num_samples}, "
         f"lorentz_width={params.lorentz_width}, "
-        f"dominant_material_prob_threshold={params.q_eval_dominant_prob_threshold}"
+        f"dominant_material_prob_threshold={params.q_eval_dominant_prob_threshold}, "
+        f"fom_q_ref={params.q_eval_fom_q_ref}, "
+        f"fom_rmse_ref={params.q_eval_fom_rmse_ref}, "
+        f"fom_weight={params.q_eval_fom_weight}"
     )
     print(
         "High-quality collection parameters: "

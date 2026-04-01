@@ -107,6 +107,7 @@ python analyze_high_quality_solutions.py --csv_path results/spectral_gan/<run>/h
 - `config/training_config.yaml`
   - 分组：`structure`、`materials`、`optics`、`generator`、`training`、`optimizer`、`visualization`、`q_evaluation`、`high_quality_collection`、`reproducibility`
   - `q_evaluation` 除了 Q/MSE 外，还会统计 `dominant_material_prob_threshold` 阈值下的结构固定度；该统计跟随当前 epoch 的 `alpha`
+  - `q_evaluation` 还支持 FOM 评分参数 `fom_q_ref`、`fom_rmse_ref`、`fom_weight`，其中 `RMSE = sqrt(lorentz_mse)`，并按 `Q_score = 1 - exp(-ln(2) * Q / fom_q_ref)`、`RMSE_score = exp(-ln(2) * RMSE / fom_rmse_ref)`、`FOM = valid * (Q_score ^ fom_weight) * (RMSE_score ^ (1 - fom_weight))` 计算
 - `config/inference_config.yaml`
   - 关键字段：`model_path`、`config_path`、`output_dir`、`num_samples`、`infer_batch_size`、`alpha`、`target_center`、`target_width`、`center_region`、`weight_factor`、`best_samples`、`q_eval_window`
 
@@ -118,7 +119,8 @@ python analyze_high_quality_solutions.py --csv_path results/spectral_gan/<run>/h
 - 训练输出：`results/spectral_gan/run_YYYYMMDD_HHMMSS/`
   - 典型内容：`models/`、`samples/`、`samples/data/`、`training_metrics.png`
   - 分布图：`thickness_distribution_evolution_combined.png`、`merged_layers_distribution_evolution_combined.png`
-  - Q/MSE 评估：`q_evaluation/`、`q_mse_evaluation_summary.csv`、`q_mse_evaluation_curves.png`、`q_mse_metrics_epoch_*.csv`
+  - Q/MSE 评估：`q_evaluation/`、`q_mse_evaluation_summary.csv`、`q_mse_evaluation_curves.png`、`q_mse_metrics_epoch_*.csv`、`global_max_q_curve.png`、`global_max_q_curve.csv`、`global_best_fom_curve.png`、`global_best_fom_curve.csv`
+  - `q_mse_metrics_epoch_*.csv` 额外包含 `lorentz_rmse`、`q_score`、`rmse_score`、`fom` 四列；`q_mse_evaluation_summary.csv` 额外包含 `epoch_best_fom`、`global_max_q`、`global_best_fom`
   - 结构固定度统计：`q_evaluation/material_certainty_epoch_*.png`、`q_evaluation/material_certainty_curves.png`、`q_evaluation/material_certainty_layers_epoch_*.csv`、`q_evaluation/material_certainty_layer_history.csv`
   - 优质解收集：`high_quality_solutions/`、`summary/high_quality_solutions.csv`、`summary/high_quality_solution_distributions.png`、`epoch_*/epoch_*_sample_*/`
   - 可复现资产：`reproducibility/`、`training_target_center_pool.csv`、`q_eval_thickness_noise.pt`、`q_eval_material_noise.pt`

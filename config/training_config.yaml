@@ -1,74 +1,81 @@
 # Spectral GAN training configuration
-# 该文件负责控制训练、训练期可视化，以及训练过程中周期性的 Q/MSE 评估。
 
 structure:
-  N_layers: 10          # 参与生成的可学习薄膜层数
-  pol: 0                # 偏振类型：0=TE，1=TM
-  thickness_sup: 0.5    # 单层厚度上限，单位 um
-  thickness_bot: 0.05   # 单层厚度下限，单位 um
+  N_layers: 10
+  pol: 0
+  thickness_sup: 0.5
+  thickness_bot: 0.05
 
 materials:
   materials_list:
-    - Ge                # 候选材料 1；名称需能被 data/myindex.py 在 data/Materials/ 下解析
-    - SiO2              # 候选材料 2
+    - Ge
+    - SiO2
     - ZnO
     - YbF3
     - Si
 
 optics:
-  wavelength_range: [3, 6]        # 训练和推理共享的波长范围，单位 um
-  samples_total: 1000             # 每条光谱的离散采样点数；同时决定判别器输入长度
-  theta: 0.0                      # 入射角，单位 rad
-  n_top: 1.0                      # 入射侧介质折射率
-  n_bot: 1.0                      # 出射侧介质折射率；当前代码仍会额外拼接底部金属层
-  lorentz_width: 0.02             # 训练目标 Lorentzian 曲线的谱宽，单位 um；训练期 MSE 评估也会用它生成峰值对齐的目标谱
-  lorentz_center_range: [3, 6]    # 训练时随机采样的 Lorentzian 峰中心范围，单位 um
-  metal_name: "Au"                # TMM 中使用的底部金属材料名称
+  wavelength_range: [3, 6]
+  samples_total: 1000
+  theta: 0.0
+  n_top: 1.0
+  n_bot: 1.0
+  lorentz_width: 0.02
+  lorentz_center_range: [3, 6]
+  metal_name: "Au"
 
 generator:
-  thickness_noise_dim: 1024       # 厚度生成分支的噪声维度
-  material_noise_dim: 1024        # 材料选择分支的噪声维度
-  alpha_min: 1                    # 训练开始时的 softmax 温度
-  alpha_max: 5                    # 训练结束时的 softmax 温度
+  thickness_noise_dim: 1024
+  material_noise_dim: 1024
+  alpha_min: 1
+  alpha_max: 5
 
 training:
-  epochs: 100                     # 总训练 full-pool epoch 数；当前配置下 1 个 epoch 会完整遍历 4096 个固定 center（共 8 个 batch）
-  batch_size: 512                 # 训练批大小；训练期 Q/MSE 评估也默认按该批大小分批生成
-  save_interval: 1                # 每隔多少个 full-pool epoch 保存 checkpoint 和训练样本；从旧 outer-step 语义切到 full-pool epoch 后改为 1
-  noise_level: 0.005              # 判别器输入噪声幅度，用于稳定 GAN 训练
-  lambda_gp: 3.0                  # 梯度惩罚权重
-  d_steps: 1                      # 每个训练 batch 的判别器更新次数；一个 full-pool epoch 内会对所有 batch 都执行该比例
-  g_steps: 2                      # 每个训练 batch 的生成器更新次数；一个 full-pool epoch 内会对所有 batch 都执行该比例
+  epochs: 100
+  batch_size: 512
+  save_interval: 1
+  noise_level: 0.005
+  lambda_gp: 3.0
+  d_steps: 1
+  g_steps: 2
 
 optimizer:
-  lr_gen: 0.001                   # 生成器学习率
-  lr_disc: 0.0001                 # 判别器学习率
-  beta1: 0.9                      # Adam beta1
-  beta2: 0.999                    # Adam beta2
-  weight_decay: 0.0001            # 判别器权重衰减
+  lr_gen: 0.001
+  lr_disc: 0.0001
+  beta1: 0.9
+  beta2: 0.999
+  weight_decay: 0.0001
 
 visualization:
-  checkpoint_sample_count: 8      # 保存训练样本图时一次生成的样本数
-  sample_export_count: 4          # 每次导出的样本条目数
-  material_analysis_batch_size: 256 # 材料概率分析时的采样批大小
-  thickness_histogram_bins: 20    # 厚度直方图的 bin 数
-  distribution_epoch_interval: 2 # 统计厚度/层数分布的 epoch 间隔
-  heatmap_epoch_tick_step: 2     # 分布热力图 y 轴刻度步长
+  checkpoint_sample_count: 8
+  sample_export_count: 4
+  material_analysis_batch_size: 256
+  thickness_histogram_bins: 20
+  distribution_epoch_interval: 2
+  heatmap_epoch_tick_step: 2
 
 q_evaluation:
-  interval: 1                    # 每隔多少个 full-pool epoch 进行一次大规模 Q/MSE 评估；从旧 outer-step 语义切到 full-pool epoch 后改为 1
-  num_samples: 1024               # 每次评估生成的样本数；每个样本都会统计 Q 值和峰值对齐 Lorentzian MSE
-  dominant_material_prob_threshold: 0.99 # 结构固定度统计阈值；若某个结构所有层的主材料概率都大于该值，则记为 fully fixed；该统计使用当前 epoch 的 alpha
+  interval: 1
+  num_samples: 1024
+  dominant_material_prob_threshold: 0.99
+  # FOM 评分:
+  # RMSE = sqrt(lorentz_mse)
+  # Q_score = 1 - exp(-ln(2) * Q / fom_q_ref)
+  # RMSE_score = exp(-ln(2) * RMSE / fom_rmse_ref)
+  # FOM = valid * (Q_score ^ fom_weight) * (RMSE_score ^ (1 - fom_weight))
+  fom_q_ref: 200.0
+  fom_rmse_ref: 0.05
+  fom_weight: 0.5
 
 high_quality_collection:
-  enabled: true                   # 是否在每次 q_evaluation 时筛选并保存优质解；复用 q_evaluation 的采样周期和样本数，避免重复生成和重复 TMM 计算
-  q_min: 200.0                    # 优质解阈值 1：Q 值必须大于该值
-  mse_max: 0.0025                 # 优质解阈值 2：峰值对齐 Lorentzian MSE 必须小于该值
-  peak_min: 0.9                   # 优质解阈值 3：吸收谱最高峰值必须大于该值
-  dominant_material_prob_min: 0.99 # 优质解阈值 4：每一层主材料的概率都必须大于该值
+  enabled: true
+  q_min: 200.0
+  mse_max: 0.0025
+  peak_min: 0.9
+  dominant_material_prob_min: 0.99
 
 reproducibility:
-  seed: 20260319                  # 全局随机种子；用于模型初始化、训练噪声、梯度惩罚噪声等所有未单独指定的随机过程
-  fix_training_target_centers: true # 是否预生成并保存一组固定 Lorentzian center 列表；开启后每个 epoch 都会基于 seed+epoch 做一次确定性打乱，再按该顺序切 batch
-  center_pool_size: 4096          # 固定 center 列表长度；当前配置下恰好等于 8 个训练 batch 的 center 容量，1 个 full-pool epoch 会完整遍历这 4096 个 center
-  fix_q_evaluation_noise: true    # 是否固定 q_evaluation 的噪声池；开启后每次评估都用同一批 latent 样本，便于横向比较 epoch 结果
+  seed: 20260319
+  fix_training_target_centers: true
+  center_pool_size: 4096
+  fix_q_evaluation_noise: true

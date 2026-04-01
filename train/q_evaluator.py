@@ -1,5 +1,6 @@
 """Training-time Q and Lorentzian-MSE evaluation helpers."""
 
+import math
 import os
 
 import matplotlib.pyplot as plt
@@ -151,6 +152,38 @@ def compute_q_mse_metrics_torch(wavelengths, absorption_spectra, lorentz_width, 
     return {**q_results, **mse_results}
 
 
+def compute_fom_scores_torch(q_values, mse_values, valid_mask, q_ref, rmse_ref, weight):
+    """Compute bounded sample-level FOM scores from Q and RMSE."""
+    if q_ref <= 0:
+        raise ValueError("fom_q_ref must be positive")
+    if rmse_ref <= 0:
+        raise ValueError("fom_rmse_ref must be positive")
+    if not 0.0 <= weight <= 1.0:
+        raise ValueError("fom_weight must be between 0 and 1")
+
+    q_values = q_values.to(dtype=mse_values.dtype)
+    valid_mask = valid_mask.to(dtype=mse_values.dtype)
+    q_ref_tensor = torch.as_tensor(q_ref, device=mse_values.device, dtype=mse_values.dtype)
+    rmse_ref_tensor = torch.as_tensor(rmse_ref, device=mse_values.device, dtype=mse_values.dtype)
+    ln2 = torch.as_tensor(math.log(2.0), device=mse_values.device, dtype=mse_values.dtype)
+
+    rmse_values = torch.sqrt(mse_values.clamp_min(0.0))
+    q_score_values = 1.0 - torch.exp(-ln2 * q_values / q_ref_tensor)
+    rmse_score_values = torch.exp(-ln2 * rmse_values / rmse_ref_tensor)
+
+    q_score_values = q_score_values.clamp(0.0, 1.0)
+    rmse_score_values = rmse_score_values.clamp(0.0, 1.0)
+    fom_values = valid_mask * torch.pow(q_score_values, weight) * torch.pow(rmse_score_values, 1.0 - weight)
+    fom_values = fom_values.clamp(0.0, 1.0)
+
+    return {
+        "rmse_values": rmse_values,
+        "q_score_values": q_score_values,
+        "rmse_score_values": rmse_score_values,
+        "fom_values": fom_values,
+    }
+
+
 def compute_material_certainty_metrics_torch(material_probabilities, dominant_prob_threshold):
     """Compute per-sample material certainty metrics from generator probabilities."""
     if material_probabilities.ndim == 2:
@@ -176,10 +209,22 @@ def compute_material_certainty_metrics_torch(material_probabilities, dominant_pr
     }
 
 
-def summarize_q_results(q_results, epoch, alpha, num_samples, lorentz_width, dominant_prob_threshold):
+def summarize_q_results(
+    q_results,
+    epoch,
+    alpha,
+    num_samples,
+    lorentz_width,
+    dominant_prob_threshold,
+    fom_q_ref,
+    fom_rmse_ref,
+    fom_weight,
+):
     """Compute summary statistics for a batch of Q/MSE/certainty results."""
     q_values = q_results["q_values"]
     mse_values = q_results["mse_values"]
+    rmse_values = q_results["rmse_values"]
+    fom_values = q_results["fom_values"]
     valid_mask = q_results["valid_mask"]
     fixed_layer_count = q_results["fixed_layer_count"].float()
     fixed_layer_ratio = q_results["fixed_layer_ratio"]
@@ -195,6 +240,9 @@ def summarize_q_results(q_results, epoch, alpha, num_samples, lorentz_width, dom
         "num_samples": int(num_samples),
         "lorentz_width": float(lorentz_width),
         "dominant_material_prob_threshold": float(dominant_prob_threshold),
+        "fom_q_ref": float(fom_q_ref),
+        "fom_rmse_ref": float(fom_rmse_ref),
+        "fom_weight": float(fom_weight),
         "valid_count": int(valid_mask.sum().item()),
         "valid_ratio": float(valid_mask.float().mean().item()),
         "mean_q": float(q_values.mean().item()),
@@ -206,6 +254,13 @@ def summarize_q_results(q_results, epoch, alpha, num_samples, lorentz_width, dom
         "min_mse": float(mse_values.min().item()),
         "max_mse": float(mse_values.max().item()),
         "std_mse": float(mse_values.std(unbiased=False).item()),
+        "mean_rmse": float(rmse_values.mean().item()),
+        "median_rmse": float(rmse_values.median().item()),
+        "min_rmse": float(rmse_values.min().item()),
+        "max_rmse": float(rmse_values.max().item()),
+        "mean_fom": float(fom_values.mean().item()),
+        "median_fom": float(fom_values.median().item()),
+        "epoch_best_fom": float(fom_values.max().item()),
         "fully_fixed_count": int(fully_fixed_mask.sum().item()),
         "fully_fixed_ratio": float(fully_fixed_mask.float().mean().item()),
         "mean_fixed_layer_count": float(fixed_layer_count.mean().item()),
@@ -262,6 +317,10 @@ def save_q_evaluation_epoch(q_results, summary, save_dir, materials):
     epoch = summary["epoch"]
     q_values = q_results["q_values"].detach().cpu().numpy()
     mse_values = q_results["mse_values"].detach().cpu().numpy()
+    rmse_values = q_results["rmse_values"].detach().cpu().numpy()
+    q_score_values = q_results["q_score_values"].detach().cpu().numpy()
+    rmse_score_values = q_results["rmse_score_values"].detach().cpu().numpy()
+    fom_values = q_results["fom_values"].detach().cpu().numpy()
     valid_mask = q_results["valid_mask"].detach().cpu().numpy()
     peak_wavelengths = q_results["peak_wavelengths"].detach().cpu().numpy()
     peak_absorptions = q_results["peak_absorptions"].detach().cpu().numpy()
@@ -282,6 +341,10 @@ def save_q_evaluation_epoch(q_results, summary, save_dir, materials):
             "sample_index": range(len(q_values)),
             "q_value": q_values,
             "lorentz_mse": mse_values,
+            "lorentz_rmse": rmse_values,
+            "q_score": q_score_values,
+            "rmse_score": rmse_score_values,
+            "fom": fom_values,
             "valid": valid_mask,
             "peak_wavelength_um": peak_wavelengths,
             "peak_absorption": peak_absorptions,
@@ -444,6 +507,18 @@ def save_q_evaluation_epoch(q_results, summary, save_dir, materials):
     print(f"Material certainty plot saved to: {certainty_plot_path}")
 
 
+def _save_single_metric_curve(curve_df, output_path, y_column, y_label, title, color):
+    """Save a single-metric training curve."""
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.plot(curve_df["epoch"], curve_df[y_column], marker="o", linewidth=2, color=color)
+    ax.set_xlabel("Epoch")
+    ax.set_ylabel(y_label)
+    ax.set_title(title)
+    ax.grid(True, alpha=0.3)
+    fig.savefig(output_path, dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+
 def save_q_evaluation_history(history, save_dir):
     """Save cross-epoch Q/MSE/certainty summary CSV and plots."""
     if not history:
@@ -451,6 +526,8 @@ def save_q_evaluation_history(history, save_dir):
 
     os.makedirs(save_dir, exist_ok=True)
     history_df = pd.DataFrame(history)
+    history_df["global_max_q"] = history_df["max_q"].cummax()
+    history_df["global_best_fom"] = history_df["epoch_best_fom"].cummax()
 
     summary_path = os.path.join(save_dir, "q_mse_evaluation_summary.csv")
     history_df.to_csv(summary_path, index=False)
@@ -497,6 +574,36 @@ def save_q_evaluation_history(history, save_dir):
     plot_path = os.path.join(save_dir, "q_mse_evaluation_curves.png")
     fig.savefig(plot_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
+
+    global_max_q_curve_df = history_df[["epoch", "max_q", "global_max_q"]].rename(
+        columns={
+            "max_q": "epoch_max_q",
+        }
+    )
+    global_max_q_curve_path = os.path.join(save_dir, "global_max_q_curve.csv")
+    global_max_q_curve_df.to_csv(global_max_q_curve_path, index=False)
+    global_max_q_plot_path = os.path.join(save_dir, "global_max_q_curve.png")
+    _save_single_metric_curve(
+        curve_df=global_max_q_curve_df,
+        output_path=global_max_q_plot_path,
+        y_column="global_max_q",
+        y_label="Global Max Q",
+        title="Global Max Q During Training",
+        color="tab:green",
+    )
+
+    global_best_fom_curve_df = history_df[["epoch", "epoch_best_fom", "global_best_fom"]]
+    global_best_fom_curve_path = os.path.join(save_dir, "global_best_fom_curve.csv")
+    global_best_fom_curve_df.to_csv(global_best_fom_curve_path, index=False)
+    global_best_fom_plot_path = os.path.join(save_dir, "global_best_fom_curve.png")
+    _save_single_metric_curve(
+        curve_df=global_best_fom_curve_df,
+        output_path=global_best_fom_plot_path,
+        y_column="global_best_fom",
+        y_label="Global Best FOM",
+        title="Global Best FOM During Training",
+        color="tab:purple",
+    )
 
     layer_ratio_columns = [
         column
@@ -622,6 +729,10 @@ def save_q_evaluation_history(history, save_dir):
 
     print(f"Q/MSE evaluation summary CSV saved to: {summary_path}")
     print(f"Q/MSE evaluation summary plot saved to: {plot_path}")
+    print(f"Global max Q curve CSV saved to: {global_max_q_curve_path}")
+    print(f"Global max Q curve plot saved to: {global_max_q_plot_path}")
+    print(f"Global best FOM curve CSV saved to: {global_best_fom_curve_path}")
+    print(f"Global best FOM curve plot saved to: {global_best_fom_plot_path}")
     print(f"Material certainty layer history CSV saved to: {layer_history_path}")
     print(f"Material certainty summary plot saved to: {certainty_plot_path}")
 
@@ -635,6 +746,9 @@ def evaluate_generator_q(generator, params, device, alpha, epoch, save_dir, high
     fixed_thickness_noise = getattr(params, "fixed_q_eval_thickness_noise", None)
     fixed_material_noise = getattr(params, "fixed_q_eval_material_noise", None)
     dominant_prob_threshold = float(getattr(params, "q_eval_dominant_prob_threshold", 0.99))
+    fom_q_ref = float(getattr(params, "q_eval_fom_q_ref", 200.0))
+    fom_rmse_ref = float(getattr(params, "q_eval_fom_rmse_ref", 0.05))
+    fom_weight = float(getattr(params, "q_eval_fom_weight", 0.5))
 
     collected_results = []
     high_quality_records = []
@@ -663,6 +777,16 @@ def evaluate_generator_q(generator, params, device, alpha, epoch, save_dir, high
                 wavelengths,
                 absorption,
                 lorentz_width=float(getattr(params, "lorentz_width", 0.02)),
+            )
+            batch_results.update(
+                compute_fom_scores_torch(
+                    batch_results["q_values"],
+                    batch_results["mse_values"],
+                    batch_results["valid_mask"],
+                    q_ref=fom_q_ref,
+                    rmse_ref=fom_rmse_ref,
+                    weight=fom_weight,
+                )
             )
             batch_results.update(
                 compute_material_certainty_metrics_torch(
@@ -702,6 +826,9 @@ def evaluate_generator_q(generator, params, device, alpha, epoch, save_dir, high
         num_samples=num_samples,
         lorentz_width=float(getattr(params, "lorentz_width", 0.02)),
         dominant_prob_threshold=dominant_prob_threshold,
+        fom_q_ref=fom_q_ref,
+        fom_rmse_ref=fom_rmse_ref,
+        fom_weight=fom_weight,
     )
     collection_summary = {"new_high_quality_count": 0, "total_high_quality_count": 0}
     if high_quality_criteria["enabled"] and high_quality_dir is not None:

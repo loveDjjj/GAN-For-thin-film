@@ -145,6 +145,9 @@ def update_params(params, config):
                 "interval": "q_eval_interval",
                 "num_samples": "q_eval_num_samples",
                 "dominant_material_prob_threshold": "q_eval_dominant_prob_threshold",
+                "fom_q_ref": "q_eval_fom_q_ref",
+                "fom_rmse_ref": "q_eval_fom_rmse_ref",
+                "fom_weight": "q_eval_fom_weight",
             },
         )
 
