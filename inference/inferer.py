@@ -2,6 +2,7 @@ import os
 
 import torch
 
+from model.Lorentzian.lorentzian_curves import generate_double_lorentzian_curves
 from model.TMM.optical_calculator import calculate_reflection
 from inference import filtering
 from inference import visualization
@@ -42,14 +43,14 @@ def generate_samples(generator, params, num_samples, alpha, device, batch_size):
     return wavelengths, thicknesses_all, probs_all, absorption_all
 
 
-def create_target_lorentzian(wavelengths, center, width):
-    """Create a normalized target Lorentzian on the same device as wavelengths."""
-    wavelengths = wavelengths.flatten()
-    gamma = torch.as_tensor(width, device=wavelengths.device, dtype=wavelengths.dtype)
-    center = torch.as_tensor(center, device=wavelengths.device, dtype=wavelengths.dtype)
-    target = (gamma / 2) / ((wavelengths - center) ** 2 + (gamma / 2) ** 2)
-    max_value = target.max().clamp_min(torch.finfo(target.dtype).eps)
-    return target / max_value
+def create_double_target_lorentzian(wavelengths, center_1, center_2, width):
+    """Create a normalized double Lorentzian target on the same device as wavelengths."""
+    return generate_double_lorentzian_curves(
+        wavelengths=wavelengths,
+        width=width,
+        center1=center_1,
+        center2=center_2,
+    )
 
 
 def _to_numpy(value):
@@ -74,20 +75,25 @@ def run_inference(args, load_parameters=None, load_model=None):
     )
 
     print(
-        f"Creating target Lorentzian (center: {args.target_center}?m, "
+        f"Creating target Lorentzian (centers: {args.target_center_1}?m / {args.target_center_2}?m, "
         f"width: {args.target_width}?m)..."
     )
-    target = create_target_lorentzian(wavelengths, args.target_center, args.target_width)
+    target = create_double_target_lorentzian(
+        wavelengths,
+        args.target_center_1,
+        args.target_center_2,
+        args.target_width,
+    )
 
     print(f"Selecting best {args.best_samples} samples based on weighted RMSE...")
     best_indices, best_rmse = filtering.select_best_samples(
         absorption_spectra,
         wavelengths,
         target,
-        args.target_center,
-        args.center_region,
-        args.weight_factor,
-        args.best_samples,
+        centers=(args.target_center_1, args.target_center_2),
+        region_width=args.center_region,
+        weight_factor=args.weight_factor,
+        num_best=args.best_samples,
     )
 
     best_indices_cpu = best_indices.detach().cpu()
@@ -128,9 +134,9 @@ def run_inference(args, load_parameters=None, load_model=None):
         absorption_spectra,
         wavelengths,
         target,
-        args.target_center,
-        args.center_region,
-        args.weight_factor,
+        centers=(args.target_center_1, args.target_center_2),
+        region_width=args.center_region,
+        weight_factor=args.weight_factor,
     )
     total_thickness = filtering.compute_total_thickness(thicknesses)
     pareto_indices = filtering.calculate_pareto_front(weighted_rmse_all, total_thickness)
@@ -168,20 +174,22 @@ def run_inference(args, load_parameters=None, load_model=None):
     else:
         print("No Pareto front samples to analyze")
 
-    best_q = qfactor.compute_q_for_indices(
+    best_q = qfactor.compute_dual_q_for_indices(
         wavelengths,
         absorption_spectra,
         best_indices,
-        args.target_center,
+        args.target_center_1,
+        args.target_center_2,
         args.q_eval_window,
     )
     qfactor.save_q_report(os.path.join(save_dir, "best_samples_q.txt"), best_q, "Best Samples Q")
 
-    pareto_q = qfactor.compute_q_for_indices(
+    pareto_q = qfactor.compute_dual_q_for_indices(
         wavelengths,
         absorption_spectra,
         pareto_indices,
-        args.target_center,
+        args.target_center_1,
+        args.target_center_2,
         args.q_eval_window,
     )
     qfactor.save_q_report(os.path.join(pareto_dir, "pareto_samples_q.txt"), pareto_q, "Pareto Samples Q")

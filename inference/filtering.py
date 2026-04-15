@@ -10,21 +10,35 @@ def _ensure_tensor(value, device=None, dtype=None):
     return torch.as_tensor(value, device=device, dtype=dtype)
 
 
-def _build_weights(wavelengths, center, region_width, weight_factor):
+def _normalize_centers(center=None, centers=None):
+    if centers is not None:
+        if torch.is_tensor(centers):
+            return tuple(float(value) for value in centers.flatten().tolist())
+        if isinstance(centers, (list, tuple)):
+            return tuple(float(value) for value in centers)
+        return (float(centers),)
+    if center is not None:
+        return (float(center),)
+    raise ValueError("either center or centers must be provided")
+
+
+def _build_weights(wavelengths, center=None, centers=None, region_width=0.0, weight_factor=1.0):
     wavelengths = _ensure_tensor(wavelengths, dtype=torch.float32).flatten()
     weights = torch.ones_like(wavelengths)
-    central_region = (wavelengths >= center - region_width) & (wavelengths <= center + region_width)
-    weights = torch.where(central_region, torch.full_like(weights, float(weight_factor)), weights)
+    for current_center in _normalize_centers(center=center, centers=centers):
+        central_region = (wavelengths >= current_center - region_width) & (wavelengths <= current_center + region_width)
+        weights = torch.where(central_region, torch.full_like(weights, float(weight_factor)), weights)
     return wavelengths, weights
 
 
-def calculate_weighted_rmse(absorption, target, wavelengths, center, region_width, weight_factor):
+def calculate_weighted_rmse(absorption, target, wavelengths, center=None, centers=None, region_width=0.0, weight_factor=1.0):
     """Calculate weighted RMSE on torch tensors; supports one sample or a batch."""
     absorption = _ensure_tensor(absorption, dtype=torch.float32)
     target = _ensure_tensor(target, device=absorption.device, dtype=absorption.dtype)
     wavelengths, weights = _build_weights(
         wavelengths,
         center=center,
+        centers=centers,
         region_width=region_width,
         weight_factor=weight_factor,
     )
@@ -39,13 +53,14 @@ def calculate_weighted_rmse(absorption, target, wavelengths, center, region_widt
     return torch.sqrt(torch.mean(squared_error, dim=1))
 
 
-def select_best_samples(absorption_spectra, wavelengths, target, center, region_width, weight_factor, num_best=4):
+def select_best_samples(absorption_spectra, wavelengths, target, center=None, centers=None, region_width=0.0, weight_factor=1.0, num_best=4):
     """Select best samples on GPU using weighted RMSE and torch.topk."""
     rmse_values = compute_weighted_rmse_all(
         absorption_spectra,
         wavelengths,
         target,
         center,
+        centers,
         region_width,
         weight_factor,
     )
@@ -58,7 +73,7 @@ def select_best_samples(absorption_spectra, wavelengths, target, center, region_
     return best_indices, best_rmse
 
 
-def compute_weighted_rmse_all(absorption_spectra, wavelengths, target, center, region_width, weight_factor):
+def compute_weighted_rmse_all(absorption_spectra, wavelengths, target, center=None, centers=None, region_width=0.0, weight_factor=1.0):
     """Compute weighted RMSE for all samples on torch tensors."""
     absorption_spectra = _ensure_tensor(absorption_spectra, dtype=torch.float32)
     if absorption_spectra.ndim != 2:
@@ -68,6 +83,7 @@ def compute_weighted_rmse_all(absorption_spectra, wavelengths, target, center, r
         target,
         wavelengths,
         center,
+        centers,
         region_width,
         weight_factor,
     )
