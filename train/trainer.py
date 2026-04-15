@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from tqdm import tqdm
 
 from model.initialize import initialize_models
-from model.Lorentzian.lorentzian_curves import generate_lorentzian_curves
+from model.Lorentzian.lorentzian_curves import generate_double_lorentzian_curves
 from model.net import Discriminator, Generator
 from model.TMM.optical_calculator import calculate_reflection
 from train.q_evaluator import evaluate_generator_q, save_q_evaluation_history
@@ -117,7 +117,8 @@ def train_gan(config_path, output_dir, device=None, load_parameters=None, setup_
     params = load_parameters(config_path, device)
     set_global_seed(getattr(params, "seed", 0))
     reproducibility_assets = prepare_reproducibility_assets(params, run_dir)
-    params.training_target_center_pool = reproducibility_assets.get("training_target_center_pool")
+    params.training_target_center_pool_1 = reproducibility_assets.get("training_target_center_pool_1")
+    params.training_target_center_pool_2 = reproducibility_assets.get("training_target_center_pool_2")
     params.fixed_q_eval_thickness_noise = reproducibility_assets.get("q_eval_thickness_noise")
     params.fixed_q_eval_material_noise = reproducibility_assets.get("q_eval_material_noise")
     params.reproducibility_dir = reproducibility_assets.get("reproducibility_dir")
@@ -164,13 +165,14 @@ def train_gan(config_path, output_dir, device=None, load_parameters=None, setup_
     )
     q_eval_interval = max(0, int(getattr(params, "q_eval_interval", 0)))
     high_quality_collection_enabled = bool(getattr(params, "high_quality_collection_enabled", False))
-    train_center_pool = getattr(params, "training_target_center_pool", None)
+    train_center_pool_1 = getattr(params, "training_target_center_pool_1", None)
+    train_center_pool_2 = getattr(params, "training_target_center_pool_2", None)
     train_center_pool_size = int(getattr(params, "train_center_pool_size", 0))
-    if train_center_pool is not None and train_center_pool_size <= 0:
-        train_center_pool_size = int(train_center_pool.values.numel())
+    if train_center_pool_1 is not None and train_center_pool_size <= 0:
+        train_center_pool_size = int(train_center_pool_1.values.numel())
         params.train_center_pool_size = train_center_pool_size
     train_batches_per_epoch = int(getattr(params, "train_batches_per_epoch", 1))
-    if train_center_pool is not None and train_center_pool_size > 0:
+    if train_center_pool_1 is not None and train_center_pool_size > 0:
         train_batches_per_epoch = max(1, int(np.ceil(train_center_pool_size / params.batch_size)))
         params.train_batches_per_epoch = train_batches_per_epoch
 
@@ -179,7 +181,7 @@ def train_gan(config_path, output_dir, device=None, load_parameters=None, setup_
     print(
         "Full-pool epoch schedule: "
         f"{train_batches_per_epoch} training batches per epoch, "
-        f"{train_center_pool_size if train_center_pool is not None else params.batch_size} target samples per epoch"
+        f"{train_center_pool_size if train_center_pool_1 is not None else params.batch_size} target samples per epoch"
     )
     if q_eval_interval > 0:
         print(
@@ -206,8 +208,10 @@ def train_gan(config_path, output_dir, device=None, load_parameters=None, setup_
     for epoch in progress_bar:
         generator.train()
         discriminator.train()
-        if train_center_pool is not None:
-            train_center_pool.set_epoch(epoch)
+        if train_center_pool_1 is not None:
+            train_center_pool_1.set_epoch(epoch)
+        if train_center_pool_2 is not None:
+            train_center_pool_2.set_epoch(epoch)
 
         alpha = params.alpha_min + (params.alpha_max - params.alpha_min) * (epoch / max(params.epochs - 1, 1))
         epoch_g_losses = []
@@ -218,28 +222,39 @@ def train_gan(config_path, output_dir, device=None, load_parameters=None, setup_
 
         for batch_index in range(train_batches_per_epoch):
             current_batch_size = params.batch_size
-            if train_center_pool is not None and train_center_pool_size > 0:
+            if train_center_pool_1 is not None and train_center_pool_size > 0:
                 consumed = batch_index * params.batch_size
                 remaining = train_center_pool_size - consumed
                 if remaining <= 0:
                     break
                 current_batch_size = min(params.batch_size, remaining)
-                center_batch = train_center_pool.next_batch(
+                center_batch_1 = train_center_pool_1.next_batch(
                     current_batch_size,
                     device=device,
                     dtype=wavelengths.dtype,
                 )
-                real_absorption = generate_lorentzian_curves(
-                    wavelengths,
+                center_batch_2 = train_center_pool_2.next_batch(
+                    current_batch_size,
+                    device=device,
+                    dtype=wavelengths.dtype,
+                )
+                real_absorption = generate_double_lorentzian_curves(
+                    wavelengths=wavelengths,
                     width=params.lorentz_width,
-                    centers=center_batch,
+                    centers1=center_batch_1,
+                    centers2=center_batch_2,
+                    min_peak_spacing=getattr(params, "min_peak_spacing", 0.0),
+                    max_peak_spacing=getattr(params, "max_peak_spacing", None),
                 ).float()
             else:
-                real_absorption = generate_lorentzian_curves(
-                    wavelengths,
+                real_absorption = generate_double_lorentzian_curves(
+                    wavelengths=wavelengths,
                     batch_size=current_batch_size,
                     width=params.lorentz_width,
-                    center_range=params.lorentz_center_range,
+                    center_range_1=params.lorentz_center_range_1,
+                    center_range_2=params.lorentz_center_range_2,
+                    min_peak_spacing=getattr(params, "min_peak_spacing", 0.0),
+                    max_peak_spacing=getattr(params, "max_peak_spacing", None),
                 ).float()
 
             for _ in range(max(1, params.d_steps)):

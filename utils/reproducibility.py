@@ -73,8 +73,8 @@ def _cpu_generator(seed):
     return generator
 
 
-def _resolve_center_range(params):
-    center_range = getattr(params, "lorentz_center_range", None)
+def _resolve_center_range(params, attribute_name):
+    center_range = getattr(params, attribute_name, None)
     if center_range is not None and len(center_range) == 2:
         center_min, center_max = float(center_range[0]), float(center_range[1])
         if center_min > center_max:
@@ -112,21 +112,33 @@ def prepare_reproducibility_assets(params, run_dir):
     }
 
     if getattr(params, "fix_training_target_centers", False):
-        center_min, center_max = _resolve_center_range(params)
+        center_min_1, center_max_1 = _resolve_center_range(params, "lorentz_center_range_1")
+        center_min_2, center_max_2 = _resolve_center_range(params, "lorentz_center_range_2")
         center_pool_size = max(1, int(getattr(params, "center_pool_size", 0)))
-        center_generator = _cpu_generator(int(getattr(params, "seed", 0)) + 101)
-        center_pool = torch.empty(center_pool_size, dtype=torch.float32)
-        center_pool.uniform_(center_min, center_max, generator=center_generator)
+        center_generator_1 = _cpu_generator(int(getattr(params, "seed", 0)) + 101)
+        center_generator_2 = _cpu_generator(int(getattr(params, "seed", 0)) + 102)
+        center_pool_1 = torch.empty(center_pool_size, dtype=torch.float32)
+        center_pool_2 = torch.empty(center_pool_size, dtype=torch.float32)
+        center_pool_1.uniform_(center_min_1, center_max_1, generator=center_generator_1)
+        center_pool_2.uniform_(center_min_2, center_max_2, generator=center_generator_2)
 
-        center_pool_path = os.path.join(reproducibility_dir, "training_target_center_pool.csv")
-        _save_center_pool(center_pool, center_pool_path)
+        center_pool_path_1 = os.path.join(reproducibility_dir, "training_target_center_pool_1.csv")
+        center_pool_path_2 = os.path.join(reproducibility_dir, "training_target_center_pool_2.csv")
+        _save_center_pool(center_pool_1, center_pool_path_1)
+        _save_center_pool(center_pool_2, center_pool_path_2)
 
-        assets["training_target_center_pool"] = EpochShuffleTensorPool(
-            center_pool,
+        assets["training_target_center_pool_1"] = EpochShuffleTensorPool(
+            center_pool_1,
             base_seed=int(getattr(params, "seed", 0)) + 401,
         )
-        metadata["center_range_um"] = [center_min, center_max]
-        metadata["training_target_center_pool_path"] = center_pool_path
+        assets["training_target_center_pool_2"] = EpochShuffleTensorPool(
+            center_pool_2,
+            base_seed=int(getattr(params, "seed", 0)) + 402,
+        )
+        metadata["center_range_1_um"] = [center_min_1, center_max_1]
+        metadata["center_range_2_um"] = [center_min_2, center_max_2]
+        metadata["training_target_center_pool_1_path"] = center_pool_path_1
+        metadata["training_target_center_pool_2_path"] = center_pool_path_2
 
     if getattr(params, "fix_q_evaluation_noise", False):
         q_eval_num_samples = max(1, int(getattr(params, "q_eval_num_samples", 0)))

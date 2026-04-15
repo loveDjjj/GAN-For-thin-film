@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import torch
 
+from model.Lorentzian.lorentzian_curves import generate_double_lorentzian_curves
 from model.TMM.optical_calculator import calculate_reflection
 from train.high_quality_solution_collector import (
     build_high_quality_criteria,
@@ -118,6 +119,109 @@ def compute_q_factors_torch(wavelengths, absorption_spectra, eps=1e-12):
     }
 
 
+def compute_q_factors_in_window_torch(wavelengths, absorption_spectra, center, half_window, eps=1e-12):
+    """Compute Q only around a target window."""
+    if absorption_spectra.ndim != 2:
+        raise ValueError("absorption_spectra must have shape [batch_size, num_wavelengths]")
+
+    device = absorption_spectra.device
+    wavelengths = wavelengths.to(device=device, dtype=absorption_spectra.dtype).flatten()
+    absorption_spectra = absorption_spectra.to(dtype=wavelengths.dtype)
+
+    window_mask = (wavelengths >= center - half_window) & (wavelengths <= center + half_window)
+    if not window_mask.any():
+        empty = torch.zeros(absorption_spectra.shape[0], device=device, dtype=absorption_spectra.dtype)
+        nan = torch.full_like(empty, float("nan"))
+        return {
+            "q_values": empty,
+            "valid_mask": torch.zeros(absorption_spectra.shape[0], dtype=torch.bool, device=device),
+            "peak_wavelengths": nan,
+            "peak_absorptions": empty,
+            "left_wavelengths": nan,
+            "right_wavelengths": nan,
+            "fwhm": nan,
+        }
+
+    masked_absorption = torch.where(window_mask.unsqueeze(0), absorption_spectra, torch.full_like(absorption_spectra, -torch.inf))
+    peak_indices = torch.argmax(masked_absorption, dim=1)
+    peak_absorptions = absorption_spectra.gather(1, peak_indices.unsqueeze(1)).squeeze(1)
+    peak_wavelengths = wavelengths[peak_indices]
+    half_max = peak_absorptions * 0.5
+
+    batch_size, num_wavelengths = absorption_spectra.shape
+    indices = torch.arange(num_wavelengths, device=device).unsqueeze(0).expand(batch_size, -1)
+
+    left_candidates = torch.where(
+        (indices < peak_indices.unsqueeze(1)) & (absorption_spectra <= half_max.unsqueeze(1)),
+        indices,
+        torch.full_like(indices, -1),
+    )
+    left_indices = left_candidates.max(dim=1).values
+
+    right_candidates = torch.where(
+        (indices > peak_indices.unsqueeze(1)) & (absorption_spectra <= half_max.unsqueeze(1)),
+        indices,
+        torch.full_like(indices, num_wavelengths),
+    )
+    right_indices = right_candidates.min(dim=1).values
+
+    left_wavelengths = torch.full_like(peak_wavelengths, float("nan"))
+    right_wavelengths = torch.full_like(peak_wavelengths, float("nan"))
+    fwhm = torch.full_like(peak_wavelengths, float("nan"))
+    q_values = torch.zeros_like(peak_wavelengths)
+
+    valid_mask = (
+        (peak_absorptions > 0)
+        & (left_indices >= 0)
+        & (right_indices < num_wavelengths)
+        & (right_indices > left_indices)
+    )
+
+    if valid_mask.any():
+        valid_rows = torch.where(valid_mask)[0]
+        left_idx = left_indices[valid_rows]
+        right_idx = right_indices[valid_rows]
+        half_max_valid = half_max[valid_rows]
+
+        left_x0 = wavelengths[left_idx]
+        left_x1 = wavelengths[left_idx + 1]
+        left_y0 = absorption_spectra[valid_rows, left_idx]
+        left_y1 = absorption_spectra[valid_rows, left_idx + 1]
+        left_delta = _safe_delta(left_y1 - left_y0, eps)
+        interpolated_left = left_x0 + (left_x1 - left_x0) * (half_max_valid - left_y0) / left_delta
+
+        right_x0 = wavelengths[right_idx - 1]
+        right_x1 = wavelengths[right_idx]
+        right_y0 = absorption_spectra[valid_rows, right_idx - 1]
+        right_y1 = absorption_spectra[valid_rows, right_idx]
+        right_delta = _safe_delta(right_y1 - right_y0, eps)
+        interpolated_right = right_x0 + (right_x1 - right_x0) * (half_max_valid - right_y0) / right_delta
+
+        current_fwhm = interpolated_right - interpolated_left
+        current_valid = current_fwhm > eps
+
+        left_wavelengths[valid_rows] = interpolated_left
+        right_wavelengths[valid_rows] = interpolated_right
+        fwhm[valid_rows] = current_fwhm
+        q_values[valid_rows] = torch.where(
+            current_valid,
+            peak_wavelengths[valid_rows] / current_fwhm.clamp_min(eps),
+            torch.zeros_like(current_fwhm),
+        )
+        valid_mask[valid_rows] = current_valid
+
+    q_values = torch.nan_to_num(q_values, nan=0.0, posinf=0.0, neginf=0.0)
+    return {
+        "q_values": q_values,
+        "valid_mask": valid_mask,
+        "peak_wavelengths": peak_wavelengths,
+        "peak_absorptions": peak_absorptions,
+        "left_wavelengths": left_wavelengths,
+        "right_wavelengths": right_wavelengths,
+        "fwhm": fwhm,
+    }
+
+
 def generate_peak_aligned_lorentzian_curves_torch(wavelengths, peak_wavelengths, width):
     """Build normalized Lorentzian targets centered at each sample peak wavelength."""
     if width <= 0:
@@ -163,6 +267,121 @@ def compute_q_mse_metrics_torch(wavelengths, absorption_spectra, lorentz_width, 
         lorentz_width,
     )
     return {**q_results, **mse_results}
+
+
+def compute_dual_q_metrics_torch(
+    wavelengths,
+    absorption_spectra,
+    target_center_1,
+    target_center_2,
+    half_window,
+    half_window_2=None,
+    eps=1e-12,
+):
+    """Compute dual-window Q metrics and aliases for downstream consumers."""
+    if half_window_2 is None:
+        half_window_2 = half_window
+
+    first = compute_q_factors_in_window_torch(
+        wavelengths,
+        absorption_spectra,
+        center=target_center_1,
+        half_window=half_window,
+        eps=eps,
+    )
+    second = compute_q_factors_in_window_torch(
+        wavelengths,
+        absorption_spectra,
+        center=target_center_2,
+        half_window=half_window_2,
+        eps=eps,
+    )
+
+    q_min_pair_values = torch.minimum(first["q_values"], second["q_values"])
+    dual_valid_mask = first["valid_mask"] & second["valid_mask"]
+    mean_peak_wavelengths = (first["peak_wavelengths"] + second["peak_wavelengths"]) * 0.5
+    min_peak_absorptions = torch.minimum(first["peak_absorptions"], second["peak_absorptions"])
+    max_fwhm = torch.maximum(first["fwhm"], second["fwhm"])
+
+    return {
+        "q1_values": first["q_values"],
+        "q2_values": second["q_values"],
+        "q_min_pair_values": q_min_pair_values,
+        "dual_valid_mask": dual_valid_mask,
+        "peak_wavelengths_1": first["peak_wavelengths"],
+        "peak_wavelengths_2": second["peak_wavelengths"],
+        "peak_absorptions_1": first["peak_absorptions"],
+        "peak_absorptions_2": second["peak_absorptions"],
+        "left_wavelengths_1": first["left_wavelengths"],
+        "left_wavelengths_2": second["left_wavelengths"],
+        "right_wavelengths_1": first["right_wavelengths"],
+        "right_wavelengths_2": second["right_wavelengths"],
+        "fwhm_1": first["fwhm"],
+        "fwhm_2": second["fwhm"],
+        # Compatibility aliases for existing downstream plots/history.
+        "q_values": q_min_pair_values,
+        "valid_mask": dual_valid_mask,
+        "peak_wavelengths": mean_peak_wavelengths,
+        "peak_absorptions": min_peak_absorptions,
+        "left_wavelengths": first["left_wavelengths"],
+        "right_wavelengths": second["right_wavelengths"],
+        "fwhm": max_fwhm,
+    }
+
+
+def compute_double_lorentzian_mse_torch(
+    wavelengths,
+    absorption_spectra,
+    peak_wavelengths_1,
+    peak_wavelengths_2,
+    width,
+    mse_key="double_lorentz_mse_values",
+    rmse_key="double_lorentz_rmse_values",
+):
+    """Compute MSE/RMSE to a peak-aligned double Lorentzian target."""
+    target_curves = generate_double_lorentzian_curves(
+        wavelengths=wavelengths,
+        width=width,
+        centers1=peak_wavelengths_1,
+        centers2=peak_wavelengths_2,
+    )
+    mse_values = torch.mean((absorption_spectra - target_curves) ** 2, dim=1)
+    mse_values = torch.nan_to_num(mse_values, nan=0.0, posinf=0.0, neginf=0.0)
+    rmse_values = torch.sqrt(mse_values.clamp_min(0.0))
+    return {
+        mse_key: mse_values,
+        rmse_key: rmse_values,
+    }
+
+
+def compute_dual_fom_scores_torch(q_min_pair_values, rmse_values, dual_valid_mask, q_ref, rmse_ref, weight):
+    """Compute FOM from the weaker of the two Q peaks and a double-target RMSE."""
+    if q_ref <= 0:
+        raise ValueError("fom_q_ref must be positive")
+    if rmse_ref <= 0:
+        raise ValueError("fom_rmse_ref must be positive")
+    if not 0.0 <= weight <= 1.0:
+        raise ValueError("fom_weight must be between 0 and 1")
+
+    q_min_pair_values = q_min_pair_values.to(dtype=rmse_values.dtype)
+    dual_valid_mask = dual_valid_mask.to(dtype=rmse_values.dtype)
+    q_ref_tensor = torch.as_tensor(q_ref, device=rmse_values.device, dtype=rmse_values.dtype)
+    rmse_ref_tensor = torch.as_tensor(rmse_ref, device=rmse_values.device, dtype=rmse_values.dtype)
+    ln2 = torch.as_tensor(math.log(2.0), device=rmse_values.device, dtype=rmse_values.dtype)
+
+    q_score_values = 1.0 - torch.exp(-ln2 * q_min_pair_values / q_ref_tensor)
+    rmse_score_values = torch.exp(-ln2 * rmse_values / rmse_ref_tensor)
+    q_score_values = q_score_values.clamp(0.0, 1.0)
+    rmse_score_values = rmse_score_values.clamp(0.0, 1.0)
+    fom_values = dual_valid_mask * torch.pow(q_score_values, weight) * torch.pow(rmse_score_values, 1.0 - weight)
+    fom_values = fom_values.clamp(0.0, 1.0)
+
+    return {
+        "rmse_values": rmse_values,
+        "q_score_values": q_score_values,
+        "rmse_score_values": rmse_score_values,
+        "fom_values": fom_values,
+    }
 
 
 def compute_fom_scores_torch(q_values, rmse_values, valid_mask, q_ref, rmse_ref, weight):
@@ -221,6 +440,15 @@ def compute_material_certainty_metrics_torch(material_probabilities, dominant_pr
     }
 
 
+def _center_range_to_target_window(center_range):
+    if center_range is None or len(center_range) != 2:
+        raise ValueError("center_range must contain exactly two values")
+    center_min, center_max = float(center_range[0]), float(center_range[1])
+    if center_min > center_max:
+        center_min, center_max = center_max, center_min
+    return (center_min + center_max) * 0.5, max((center_max - center_min) * 0.5, 1e-6)
+
+
 def summarize_q_results(
     q_results,
     epoch,
@@ -237,6 +465,12 @@ def summarize_q_results(
     q_values = q_results["q_values"]
     mse_values = q_results["mse_values"]
     rmse_values = q_results["rmse_values"]
+    q1_values = q_results.get("q1_values", q_values)
+    q2_values = q_results.get("q2_values", q_values)
+    q_min_pair_values = q_results.get("q_min_pair_values", q_values)
+    dual_valid_mask = q_results.get("dual_valid_mask", q_results["valid_mask"])
+    double_lorentz_mse_values = q_results.get("double_lorentz_mse_values", mse_values)
+    double_lorentz_rmse_values = q_results.get("double_lorentz_rmse_values", rmse_values)
     fom_lorentz_mse_values = q_results["fom_lorentz_mse_values"]
     fom_lorentz_rmse_values = q_results["fom_lorentz_rmse_values"]
     fom_values = q_results["fom_values"]
@@ -260,11 +494,20 @@ def summarize_q_results(
         "fom_rmse_ref": float(fom_rmse_ref),
         "fom_weight": float(fom_weight),
         "valid_count": int(valid_mask.sum().item()),
-        "valid_ratio": float(valid_mask.float().mean().item()),
+        "valid_ratio": float(dual_valid_mask.float().mean().item()),
+        "dual_valid_ratio": float(dual_valid_mask.float().mean().item()),
+        "mean_q1": float(q1_values.mean().item()),
+        "mean_q2": float(q2_values.mean().item()),
+        "mean_q_min_pair": float(q_min_pair_values.mean().item()),
+        "median_q_min_pair": float(q_min_pair_values.median().item()),
         "mean_q": float(q_values.mean().item()),
         "median_q": float(q_values.median().item()),
         "max_q": float(q_values.max().item()),
         "std_q": float(q_values.std(unbiased=False).item()),
+        "mean_double_mse": float(double_lorentz_mse_values.mean().item()),
+        "median_double_mse": float(double_lorentz_mse_values.median().item()),
+        "mean_double_rmse": float(double_lorentz_rmse_values.mean().item()),
+        "median_double_rmse": float(double_lorentz_rmse_values.median().item()),
         "mean_mse": float(mse_values.mean().item()),
         "median_mse": float(mse_values.median().item()),
         "min_mse": float(mse_values.min().item()),
@@ -968,6 +1211,8 @@ def evaluate_generator_q(generator, params, device, alpha, epoch, save_dir, high
     fom_lorentz_width = float(getattr(params, "q_eval_fom_lorentz_width", getattr(params, "lorentz_width", 0.02)))
     fom_rmse_ref = float(getattr(params, "q_eval_fom_rmse_ref", 0.05))
     fom_weight = float(getattr(params, "q_eval_fom_weight", 0.5))
+    target_center_1, half_window_1 = _center_range_to_target_window(getattr(params, "lorentz_center_range_1", None))
+    target_center_2, half_window_2 = _center_range_to_target_window(getattr(params, "lorentz_center_range_2", None))
 
     collected_results = []
     collected_absorption_spectra = []
@@ -995,26 +1240,43 @@ def evaluate_generator_q(generator, params, device, alpha, epoch, save_dir, high
             reflection = torch.nan_to_num(reflection, nan=1.0, posinf=1.0, neginf=1.0)
             absorption = (1 - reflection).float()
 
-            batch_results = compute_q_mse_metrics_torch(
+            batch_results = compute_dual_q_metrics_torch(
                 wavelengths,
                 absorption,
-                lorentz_width=float(getattr(params, "lorentz_width", 0.02)),
+                target_center_1=target_center_1,
+                target_center_2=target_center_2,
+                half_window=half_window_1,
+                half_window_2=half_window_2,
             )
             batch_results.update(
-                compute_peak_lorentzian_mse_torch(
+                compute_double_lorentzian_mse_torch(
                     wavelengths,
                     absorption,
-                    batch_results["peak_wavelengths"],
+                    batch_results["peak_wavelengths_1"],
+                    batch_results["peak_wavelengths_2"],
                     width=fom_lorentz_width,
-                    mse_key="fom_lorentz_mse_values",
-                    rmse_key="fom_lorentz_rmse_values",
+                    mse_key="fom_double_lorentz_mse_values",
+                    rmse_key="fom_double_lorentz_rmse_values",
                 )
             )
             batch_results.update(
-                compute_fom_scores_torch(
-                    batch_results["q_values"],
+                compute_double_lorentzian_mse_torch(
+                    wavelengths,
+                    absorption,
+                    batch_results["peak_wavelengths_1"],
+                    batch_results["peak_wavelengths_2"],
+                    width=float(getattr(params, "lorentz_width", 0.02)),
+                )
+            )
+            batch_results["mse_values"] = batch_results["double_lorentz_mse_values"]
+            batch_results["rmse_values"] = batch_results["double_lorentz_rmse_values"]
+            batch_results["fom_lorentz_mse_values"] = batch_results["fom_double_lorentz_mse_values"]
+            batch_results["fom_lorentz_rmse_values"] = batch_results["fom_double_lorentz_rmse_values"]
+            batch_results.update(
+                compute_dual_fom_scores_torch(
+                    batch_results["q_min_pair_values"],
                     batch_results["fom_lorentz_rmse_values"],
-                    batch_results["valid_mask"],
+                    batch_results["dual_valid_mask"],
                     q_ref=fom_q_ref,
                     rmse_ref=fom_rmse_ref,
                     weight=fom_weight,

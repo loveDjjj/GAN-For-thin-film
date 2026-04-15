@@ -6,7 +6,7 @@ import pandas as pd
 import torch
 from matplotlib.patches import Patch
 
-from model.Lorentzian.lorentzian_curves import generate_lorentzian_curves
+from model.Lorentzian.lorentzian_curves import generate_double_lorentzian_curves
 from model.TMM.optical_calculator import calculate_reflection
 from utils.visualize import save_gan_samples
 
@@ -270,11 +270,14 @@ def save_sample(generator, discriminator, params, epoch, samples_dir, device, al
         thicknesses, refractive_indices, P = generator(thickness_noise, material_noise, alpha)
 
         wavelengths = 2 * np.pi / params.k.to(device)
-        real_samples = generate_lorentzian_curves(
-            wavelengths,
+        real_samples = generate_double_lorentzian_curves(
+            wavelengths=wavelengths,
             batch_size=checkpoint_sample_count,
             width=params.lorentz_width,
-            center_range=params.lorentz_center_range,
+            center_range_1=params.lorentz_center_range_1,
+            center_range_2=params.lorentz_center_range_2,
+            min_peak_spacing=getattr(params, "min_peak_spacing", 0.0),
+            max_peak_spacing=getattr(params, "max_peak_spacing", None),
         )
 
         reflection = calculate_reflection(thicknesses, refractive_indices, params, device)

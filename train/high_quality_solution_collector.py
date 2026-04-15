@@ -7,6 +7,8 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import torch
 
+from model.Lorentzian.lorentzian_curves import generate_double_lorentzian_curves
+
 
 def build_high_quality_criteria(params):
     """Build the configured screening thresholds for high-quality solutions."""
@@ -39,6 +41,15 @@ def _generate_peak_aligned_lorentzian_curves_torch(wavelengths, peak_wavelengths
     curves = (gamma / 2) / ((wavelengths.unsqueeze(0) - peak_wavelengths.unsqueeze(1)) ** 2 + (gamma / 2) ** 2)
     max_values = curves.amax(dim=1, keepdim=True).clamp_min(torch.finfo(curves.dtype).eps)
     return curves / max_values
+
+
+def _generate_peak_aligned_double_lorentzian_curves_torch(wavelengths, peak_wavelengths_1, peak_wavelengths_2, width):
+    return generate_double_lorentzian_curves(
+        wavelengths=wavelengths,
+        width=width,
+        centers1=peak_wavelengths_1,
+        centers2=peak_wavelengths_2,
+    )
 
 
 def build_original_layers(thickness_values, material_probs, materials):
@@ -137,10 +148,20 @@ def initialize_high_quality_collection(save_dir, criteria):
                 "alpha",
                 "evaluation_sample_index",
                 "q_value",
+                "q1",
+                "q2",
+                "q_min_pair",
                 "lorentz_mse",
+                "double_lorentz_mse",
                 "peak_wavelength_um",
+                "peak_wavelength_1_um",
+                "peak_wavelength_2_um",
                 "peak_absorption",
+                "peak_absorption_1",
+                "peak_absorption_2",
                 "fwhm_um",
+                "fwhm_1_um",
+                "fwhm_2_um",
                 "total_thickness_um",
                 "min_dominant_material_probability",
                 "merged_layer_count",
@@ -174,9 +195,10 @@ def collect_high_quality_solutions_batch(
     min_dominant_probs = dominant_probs.min(dim=1).values
 
     high_quality_mask = (
-        (q_mse_results["q_values"] > criteria["q_min"])
-        & (q_mse_results["mse_values"] < criteria["mse_max"])
-        & (q_mse_results["peak_absorptions"] > criteria["peak_min"])
+        (q_mse_results["q_min_pair_values"] > criteria["q_min"])
+        & (q_mse_results["double_lorentz_mse_values"] < criteria["mse_max"])
+        & (q_mse_results["peak_absorptions_1"] > criteria["peak_min"])
+        & (q_mse_results["peak_absorptions_2"] > criteria["peak_min"])
         & (min_dominant_probs > criteria["dominant_material_prob_min"])
     )
 
@@ -184,10 +206,12 @@ def collect_high_quality_solutions_batch(
         return []
 
     selected_indices = torch.where(high_quality_mask)[0]
-    selected_peak_wavelengths = q_mse_results["peak_wavelengths"][selected_indices]
-    selected_targets = _generate_peak_aligned_lorentzian_curves_torch(
+    selected_peak_wavelengths_1 = q_mse_results["peak_wavelengths_1"][selected_indices]
+    selected_peak_wavelengths_2 = q_mse_results["peak_wavelengths_2"][selected_indices]
+    selected_targets = _generate_peak_aligned_double_lorentzian_curves_torch(
         wavelengths,
-        selected_peak_wavelengths,
+        selected_peak_wavelengths_1,
+        selected_peak_wavelengths_2,
         float(getattr(params, "lorentz_width", 0.02)),
     ).detach().cpu()
 
@@ -196,10 +220,20 @@ def collect_high_quality_solutions_batch(
     selected_thicknesses = thicknesses[selected_indices].detach().cpu()
     selected_material_probs = material_probabilities[selected_indices].detach().cpu()
     selected_q_values = q_mse_results["q_values"][selected_indices].detach().cpu()
+    selected_q1_values = q_mse_results["q1_values"][selected_indices].detach().cpu()
+    selected_q2_values = q_mse_results["q2_values"][selected_indices].detach().cpu()
+    selected_q_min_pair_values = q_mse_results["q_min_pair_values"][selected_indices].detach().cpu()
     selected_mse_values = q_mse_results["mse_values"][selected_indices].detach().cpu()
+    selected_double_mse_values = q_mse_results["double_lorentz_mse_values"][selected_indices].detach().cpu()
     selected_peak_absorptions = q_mse_results["peak_absorptions"][selected_indices].detach().cpu()
+    selected_peak_absorptions_1 = q_mse_results["peak_absorptions_1"][selected_indices].detach().cpu()
+    selected_peak_absorptions_2 = q_mse_results["peak_absorptions_2"][selected_indices].detach().cpu()
     selected_fwhm = q_mse_results["fwhm"][selected_indices].detach().cpu()
-    selected_peak_positions = selected_peak_wavelengths.detach().cpu()
+    selected_fwhm_1 = q_mse_results["fwhm_1"][selected_indices].detach().cpu()
+    selected_fwhm_2 = q_mse_results["fwhm_2"][selected_indices].detach().cpu()
+    selected_peak_positions = q_mse_results["peak_wavelengths"][selected_indices].detach().cpu()
+    selected_peak_positions_1 = selected_peak_wavelengths_1.detach().cpu()
+    selected_peak_positions_2 = selected_peak_wavelengths_2.detach().cpu()
     selected_min_dominant_probs = min_dominant_probs[selected_indices].detach().cpu()
 
     epoch_dir = os.path.join(save_dir, f"epoch_{int(epoch):04d}")
@@ -262,15 +296,25 @@ def collect_high_quality_solutions_batch(
             "alpha": float(alpha),
             "evaluation_sample_index": global_index,
             "criteria": criteria,
-            "metrics": {
-                "q_value": float(selected_q_values[local_index].item()),
-                "lorentz_mse": float(selected_mse_values[local_index].item()),
-                "peak_wavelength_um": float(selected_peak_positions[local_index].item()),
-                "peak_absorption": float(selected_peak_absorptions[local_index].item()),
-                "fwhm_um": float(selected_fwhm[local_index].item()),
-                "total_thickness_um": total_thickness,
-                "min_dominant_material_probability": float(selected_min_dominant_probs[local_index].item()),
-                "merged_layer_count": len(merged_layers),
+                "metrics": {
+                    "q_value": float(selected_q_values[local_index].item()),
+                    "q1": float(selected_q1_values[local_index].item()),
+                    "q2": float(selected_q2_values[local_index].item()),
+                    "q_min_pair": float(selected_q_min_pair_values[local_index].item()),
+                    "lorentz_mse": float(selected_mse_values[local_index].item()),
+                    "double_lorentz_mse": float(selected_double_mse_values[local_index].item()),
+                    "peak_wavelength_um": float(selected_peak_positions[local_index].item()),
+                    "peak_wavelength_1_um": float(selected_peak_positions_1[local_index].item()),
+                    "peak_wavelength_2_um": float(selected_peak_positions_2[local_index].item()),
+                    "peak_absorption": float(selected_peak_absorptions[local_index].item()),
+                    "peak_absorption_1": float(selected_peak_absorptions_1[local_index].item()),
+                    "peak_absorption_2": float(selected_peak_absorptions_2[local_index].item()),
+                    "fwhm_um": float(selected_fwhm[local_index].item()),
+                    "fwhm_1_um": float(selected_fwhm_1[local_index].item()),
+                    "fwhm_2_um": float(selected_fwhm_2[local_index].item()),
+                    "total_thickness_um": total_thickness,
+                    "min_dominant_material_probability": float(selected_min_dominant_probs[local_index].item()),
+                    "merged_layer_count": len(merged_layers),
             },
             "materials": list(params.materials),
             "original_layers": original_layers,
@@ -288,10 +332,20 @@ def collect_high_quality_solutions_batch(
                 "alpha": float(alpha),
                 "evaluation_sample_index": global_index,
                 "q_value": float(selected_q_values[local_index].item()),
+                "q1": float(selected_q1_values[local_index].item()),
+                "q2": float(selected_q2_values[local_index].item()),
+                "q_min_pair": float(selected_q_min_pair_values[local_index].item()),
                 "lorentz_mse": float(selected_mse_values[local_index].item()),
+                "double_lorentz_mse": float(selected_double_mse_values[local_index].item()),
                 "peak_wavelength_um": float(selected_peak_positions[local_index].item()),
+                "peak_wavelength_1_um": float(selected_peak_positions_1[local_index].item()),
+                "peak_wavelength_2_um": float(selected_peak_positions_2[local_index].item()),
                 "peak_absorption": float(selected_peak_absorptions[local_index].item()),
+                "peak_absorption_1": float(selected_peak_absorptions_1[local_index].item()),
+                "peak_absorption_2": float(selected_peak_absorptions_2[local_index].item()),
                 "fwhm_um": float(selected_fwhm[local_index].item()),
+                "fwhm_1_um": float(selected_fwhm_1[local_index].item()),
+                "fwhm_2_um": float(selected_fwhm_2[local_index].item()),
                 "total_thickness_um": total_thickness,
                 "min_dominant_material_probability": float(selected_min_dominant_probs[local_index].item()),
                 "merged_layer_count": int(len(merged_layers)),
