@@ -5,7 +5,8 @@ num_samples: 10000
 infer_batch_size: 512
 alpha: 200
 visualize: false
-target_center: 3.8
+target_center_1: 3.8
+target_center_2: 5.2
 target_width: 0.02
 center_region: 0.02
 weight_factor: 10.0

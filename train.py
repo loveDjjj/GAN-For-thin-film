@@ -73,7 +73,13 @@ def load_parameters(config_path, device):
     params.n_top = optics["n_top"]
     params.n_bot = optics["n_bot"]
     params.lorentz_width = optics["lorentz_width"]
-    params.lorentz_center_range = optics["lorentz_center_range"]
+    params.lorentz_center_range_1 = optics["lorentz_center_range_1"]
+    params.lorentz_center_range_2 = optics["lorentz_center_range_2"]
+    params.min_peak_spacing = float(optics["min_peak_spacing"])
+    params.max_peak_spacing = (
+        None if optics.get("max_peak_spacing") is None else float(optics["max_peak_spacing"])
+    )
+    params.peak_height_ratio = float(optics.get("peak_height_ratio", 1.0))
     params.metal_name = optics["metal_name"]
 
     generator = require(("generator",))
@@ -191,6 +197,10 @@ def load_parameters(config_path, device):
         f"interval={params.q_eval_interval}, "
         f"num_samples={params.q_eval_num_samples}, "
         f"lorentz_width={params.lorentz_width}, "
+        f"lorentz_center_range_1={params.lorentz_center_range_1}, "
+        f"lorentz_center_range_2={params.lorentz_center_range_2}, "
+        f"min_peak_spacing={params.min_peak_spacing}, "
+        f"max_peak_spacing={params.max_peak_spacing}, "
         f"dominant_material_prob_threshold={params.q_eval_dominant_prob_threshold}, "
         f"fom_q_ref={params.q_eval_fom_q_ref}, "
         f"fom_lorentz_width={params.q_eval_fom_lorentz_width}, "

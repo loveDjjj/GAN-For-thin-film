@@ -52,8 +52,10 @@ def parse_args():
                         help='Alpha parameter for material selection sharpness')
     parser.add_argument('--visualize', action='store_true',
                         help='Visualize generated samples')
-    parser.add_argument('--target_center', type=float, default=None,
-                        help='Target Lorentzian center wavelength (μm)')
+    parser.add_argument('--target_center_1', type=float, default=None,
+                        help='First target Lorentzian center wavelength (μm)')
+    parser.add_argument('--target_center_2', type=float, default=None,
+                        help='Second target Lorentzian center wavelength (μm)')
     parser.add_argument('--target_width', type=float, default=None,
                         help='Target Lorentzian width (μm)')
     parser.add_argument('--center_region', type=float, default=None,
@@ -99,9 +101,14 @@ def load_parameters(config_path, device):
     params.n_top = optics["n_top"]
     params.n_bot = optics["n_bot"]
     params.lorentz_width = optics["lorentz_width"]
+    params.lorentz_center_range_1 = optics["lorentz_center_range_1"]
+    params.lorentz_center_range_2 = optics["lorentz_center_range_2"]
+    params.min_peak_spacing = float(optics["min_peak_spacing"])
+    params.max_peak_spacing = (
+        None if optics.get("max_peak_spacing") is None else float(optics["max_peak_spacing"])
+    )
+    params.peak_height_ratio = float(optics.get("peak_height_ratio", 1.0))
     params.metal_name = optics["metal_name"]
-    if "lorentz_center_range" in optics:
-        params.lorentz_center_range = optics["lorentz_center_range"]
 
     generator = require(("generator",))
     params.thickness_noise_dim = generator["thickness_noise_dim"]

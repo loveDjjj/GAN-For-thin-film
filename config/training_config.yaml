@@ -21,7 +21,12 @@ optics:
   n_top: 1.0
   n_bot: 1.0
   lorentz_width: 0.02
-  lorentz_center_range: [3, 6]
+  # 双峰目标: 两个中心分别在各自范围内采样，峰宽共用 lorentz_width
+  lorentz_center_range_1: [3.2, 4.2]
+  lorentz_center_range_2: [4.6, 5.8]
+  min_peak_spacing: 0.4
+  max_peak_spacing: 2.5
+  peak_height_ratio: 1.0
   metal_name: "Au"
 
 generator:
