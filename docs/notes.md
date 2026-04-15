@@ -1,5 +1,20 @@
 # Notes
 
+## 需求（2026-04-15）
+为 `double` 分支补充“双窄带目标替换单窄带”的正式设计说明，明确训练目标、训练期评估、推理筛样和高质量样本筛选的双峰改造方案。
+
+## 涉及文件
+- `docs/superpowers/specs/2026-04-15-double-narrowband-design.md`
+- `docs/notes.md`
+- `docs/logs/2026-03.md`
+
+## 验证
+- 未验证（本次仅新增设计文档与记录）
+
+## Git
+- branch: `double`
+- commit: `git commit -m "docs: add double narrowband design spec"`
+
 ## 需求（2026-04-01）
 在训练期 `q_evaluation` 中，给 FOM 增加独立的 RMSE 计算路线：
 
