@@ -485,23 +485,17 @@ def summarize_q_results(
         "mean_q2": float(q2_values.mean().item()),
         "mean_q_min_pair": float(q_min_pair_values.mean().item()),
         "median_q_min_pair": float(q_min_pair_values.median().item()),
-        "mean_q": float(q_min_pair_values.mean().item()),
-        "median_q": float(q_min_pair_values.median().item()),
-        "max_q": float(q_min_pair_values.max().item()),
-        "std_q": float(q_min_pair_values.std(unbiased=False).item()),
+        "max_q_min_pair": float(q_min_pair_values.max().item()),
+        "std_q_min_pair": float(q_min_pair_values.std(unbiased=False).item()),
         "mean_double_mse": float(double_lorentz_mse_values.mean().item()),
         "median_double_mse": float(double_lorentz_mse_values.median().item()),
+        "min_double_mse": float(double_lorentz_mse_values.min().item()),
+        "max_double_mse": float(double_lorentz_mse_values.max().item()),
+        "std_double_mse": float(double_lorentz_mse_values.std(unbiased=False).item()),
         "mean_double_rmse": float(double_lorentz_rmse_values.mean().item()),
         "median_double_rmse": float(double_lorentz_rmse_values.median().item()),
-        "mean_mse": float(double_lorentz_mse_values.mean().item()),
-        "median_mse": float(double_lorentz_mse_values.median().item()),
-        "min_mse": float(double_lorentz_mse_values.min().item()),
-        "max_mse": float(double_lorentz_mse_values.max().item()),
-        "std_mse": float(double_lorentz_mse_values.std(unbiased=False).item()),
-        "mean_rmse": float(double_lorentz_rmse_values.mean().item()),
-        "median_rmse": float(double_lorentz_rmse_values.median().item()),
-        "min_rmse": float(double_lorentz_rmse_values.min().item()),
-        "max_rmse": float(double_lorentz_rmse_values.max().item()),
+        "min_double_rmse": float(double_lorentz_rmse_values.min().item()),
+        "max_double_rmse": float(double_lorentz_rmse_values.max().item()),
         "mean_fom_lorentz_mse": float(fom_lorentz_mse_values.mean().item()),
         "median_fom_lorentz_mse": float(fom_lorentz_mse_values.median().item()),
         "mean_fom_lorentz_rmse": float(fom_lorentz_rmse_values.mean().item()),
@@ -572,7 +566,7 @@ def _get_previous_global_best(save_dir, tracked_metric_name):
         return float(history_df[tracked_metric_name].max())
 
     fallback_columns = {
-        "global_max_q": "max_q",
+        "global_max_q": "max_q_min_pair",
         "global_best_fom": "epoch_best_fom",
     }
     fallback_column = fallback_columns.get(tracked_metric_name)
@@ -992,20 +986,11 @@ def save_q_evaluation_history(history, save_dir):
 
     os.makedirs(save_dir, exist_ok=True)
     history_df = pd.DataFrame(history)
-    history_df["global_max_q"] = history_df["max_q"].cummax()
+    history_df["global_max_q_min_pair"] = history_df["max_q_min_pair"].cummax()
     history_df["global_best_fom"] = history_df["epoch_best_fom"].cummax()
 
     summary_path = os.path.join(save_dir, "q_mse_evaluation_summary.csv")
     history_df.to_csv(summary_path, index=False)
-
-    q_primary_mean_column = _pick_history_column(history_df, "mean_q_min_pair", "mean_q")
-    q_primary_median_column = _pick_history_column(history_df, "median_q_min_pair", "median_q")
-    valid_ratio_column = _pick_history_column(history_df, "dual_valid_ratio", "valid_ratio")
-    mse_mean_column = _pick_history_column(history_df, "mean_double_mse", "mean_mse")
-    mse_median_column = _pick_history_column(history_df, "median_double_mse", "median_mse")
-    mse_min_column = _pick_history_column(history_df, "min_double_mse", "min_mse")
-    mse_max_column = _pick_history_column(history_df, "max_double_mse", "max_mse")
-    mse_std_column = _pick_history_column(history_df, "std_double_mse", "std_mse")
 
     fig, axes = plt.subplots(2, 2, figsize=(14, 10), sharex=True)
 
@@ -1013,8 +998,8 @@ def save_q_evaluation_history(history, save_dir):
         axes[0, 0].plot(history_df["epoch"], history_df["mean_q1"], marker="o", linewidth=2, label="Mean Q1")
     if "mean_q2" in history_df.columns:
         axes[0, 0].plot(history_df["epoch"], history_df["mean_q2"], marker="s", linewidth=2, label="Mean Q2")
-    axes[0, 0].plot(history_df["epoch"], history_df[q_primary_mean_column], marker="^", linewidth=2, label="Mean Q_min_pair")
-    axes[0, 0].plot(history_df["epoch"], history_df["max_q"], marker="d", linewidth=2, label="Max Q_min_pair")
+    axes[0, 0].plot(history_df["epoch"], history_df["mean_q_min_pair"], marker="^", linewidth=2, label="Mean Q_min_pair")
+    axes[0, 0].plot(history_df["epoch"], history_df["max_q_min_pair"], marker="d", linewidth=2, label="Max Q_min_pair")
     axes[0, 0].set_ylabel("Q")
     axes[0, 0].set_title("Dual-Peak Q Statistics During Training")
     axes[0, 0].grid(True, alpha=0.3)
@@ -1022,7 +1007,7 @@ def save_q_evaluation_history(history, save_dir):
 
     axes[0, 1].plot(
         history_df["epoch"],
-        history_df[valid_ratio_column] * 100.0,
+        history_df["dual_valid_ratio"] * 100.0,
         marker="o",
         linewidth=2,
         color="tab:green",
@@ -1031,17 +1016,17 @@ def save_q_evaluation_history(history, save_dir):
     axes[0, 1].set_title("Share of Samples with Valid Dual Peaks")
     axes[0, 1].grid(True, alpha=0.3)
 
-    axes[1, 0].plot(history_df["epoch"], history_df[mse_mean_column], marker="o", linewidth=2, label="Mean Double MSE")
-    axes[1, 0].plot(history_df["epoch"], history_df[mse_median_column], marker="s", linewidth=2, label="Median Double MSE")
-    axes[1, 0].plot(history_df["epoch"], history_df[mse_min_column], marker="^", linewidth=2, label="Min Double MSE")
+    axes[1, 0].plot(history_df["epoch"], history_df["mean_double_mse"], marker="o", linewidth=2, label="Mean Double MSE")
+    axes[1, 0].plot(history_df["epoch"], history_df["median_double_mse"], marker="s", linewidth=2, label="Median Double MSE")
+    axes[1, 0].plot(history_df["epoch"], history_df["min_double_mse"], marker="^", linewidth=2, label="Min Double MSE")
     axes[1, 0].set_xlabel("Epoch")
     axes[1, 0].set_ylabel("MSE")
     axes[1, 0].set_title("Double-Lorentzian MSE During Training")
     axes[1, 0].grid(True, alpha=0.3)
     axes[1, 0].legend()
 
-    axes[1, 1].plot(history_df["epoch"], history_df[mse_max_column], marker="o", linewidth=2, label="Max Double MSE")
-    axes[1, 1].plot(history_df["epoch"], history_df[mse_std_column], marker="s", linewidth=2, label="Std Double MSE")
+    axes[1, 1].plot(history_df["epoch"], history_df["max_double_mse"], marker="o", linewidth=2, label="Max Double MSE")
+    axes[1, 1].plot(history_df["epoch"], history_df["std_double_mse"], marker="s", linewidth=2, label="Std Double MSE")
     axes[1, 1].set_xlabel("Epoch")
     axes[1, 1].set_ylabel("MSE")
     axes[1, 1].set_title("Double-MSE Spread During Training")
@@ -1053,10 +1038,9 @@ def save_q_evaluation_history(history, save_dir):
     fig.savefig(plot_path, dpi=300, bbox_inches="tight")
     plt.close(fig)
 
-    global_max_q_curve_df = history_df[["epoch", "max_q", "global_max_q"]].rename(
+    global_max_q_curve_df = history_df[["epoch", "max_q_min_pair", "global_max_q_min_pair"]].rename(
         columns={
-            "max_q": "epoch_max_q_min_pair",
-            "global_max_q": "global_max_q_min_pair",
+            "max_q_min_pair": "epoch_max_q_min_pair",
         }
     )
     global_max_q_curve_path = os.path.join(save_dir, "global_max_q_curve.csv")

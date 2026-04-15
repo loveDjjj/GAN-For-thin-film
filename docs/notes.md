@@ -1,6 +1,27 @@
 # Notes
 
 ## 需求（2026-04-16）
+把训练期 summary 层里剩余的历史兼容列名彻底双峰化，移除 `mean_q/max_q/mean_mse/mean_rmse` 等旧键，统一改为 `*_q_min_pair` 与 `*_double_*` 语义。
+
+## 涉及文件
+- `train/q_evaluator.py`
+- `train/trainer.py`
+- `tests/test_dual_metrics.py`
+- `README.md`
+- `docs/notes.md`
+- `docs/logs/2026-03.md`
+
+## 验证
+```bash
+conda run -n oneday python -m unittest tests.test_dual_metrics tests.test_double_inference -v
+conda run -n oneday python -m py_compile train/q_evaluator.py train/trainer.py train/high_quality_solution_collector.py
+```
+
+## Git
+- branch: `double`
+- commit: `git commit -m "refactor: fully rename dual peak summary fields"`
+
+## 需求（2026-04-16）
 继续收缩 `train/q_evaluator.py` 内部的单峰兼容别名，把 `q_values/mse_values/rmse_values/peak_wavelengths/peak_absorptions/fwhm/valid_mask` 从主结果字典层移除，只保留双峰主字段在主链上传递。
 
 ## 涉及文件

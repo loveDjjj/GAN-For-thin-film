@@ -379,8 +379,8 @@ def train_gan(config_path, output_dir, device=None, load_parameters=None, setup_
                     }
                 )
 
-        latest_mean_q = q_evaluation_history[-1]["mean_q"] if q_evaluation_history else 0.0
-        latest_mean_mse = q_evaluation_history[-1]["mean_mse"] if q_evaluation_history else 0.0
+        latest_mean_q_min_pair = q_evaluation_history[-1]["mean_q_min_pair"] if q_evaluation_history else 0.0
+        latest_mean_double_mse = q_evaluation_history[-1]["mean_double_mse"] if q_evaluation_history else 0.0
         latest_fully_fixed_ratio = q_evaluation_history[-1]["fully_fixed_ratio"] if q_evaluation_history else 0.0
         latest_high_quality_total = (
             q_evaluation_history[-1]["total_high_quality_count"] if q_evaluation_history else 0
@@ -397,13 +397,13 @@ def train_gan(config_path, output_dir, device=None, load_parameters=None, setup_
             )
             q_evaluation_history.append(q_summary)
             save_q_evaluation_history(q_evaluation_history, q_evaluation_dir)
-            latest_mean_q = q_summary["mean_q"]
-            latest_mean_mse = q_summary["mean_mse"]
+            latest_mean_q_min_pair = q_summary["mean_q_min_pair"]
+            latest_mean_double_mse = q_summary["mean_double_mse"]
             latest_fully_fixed_ratio = q_summary["fully_fixed_ratio"]
             latest_high_quality_total = q_summary["total_high_quality_count"]
             print(
-                f"[QEval] epoch={current_epoch} mean_q={q_summary['mean_q']:.4f} "
-                f"mean_mse={q_summary['mean_mse']:.6f} valid_ratio={q_summary['valid_ratio'] * 100:.2f}% "
+                f"[QEval] epoch={current_epoch} mean_q_min_pair={q_summary['mean_q_min_pair']:.4f} "
+                f"mean_double_mse={q_summary['mean_double_mse']:.6f} dual_valid_ratio={q_summary['dual_valid_ratio'] * 100:.2f}% "
                 f"fully_fixed={q_summary['fully_fixed_ratio'] * 100:.2f}% "
                 f"mean_fixed_layers={q_summary['mean_fixed_layer_count']:.2f} "
                 f"high_quality={q_summary['high_quality_count']} total_high_quality={q_summary['total_high_quality_count']}"
@@ -419,8 +419,8 @@ def train_gan(config_path, output_dir, device=None, load_parameters=None, setup_
                 "D(fake)": f"{d_fake_score_value:.2f}",
                 "Thick": f"{mean_thickness:.3f}",
                 "Layers": f"{mean_merged_layers:.1f}",
-                "AvgQ": f"{latest_mean_q:.2f}" if q_evaluation_history else "N/A",
-                "AvgMSE": f"{latest_mean_mse:.4e}" if q_evaluation_history else "N/A",
+                "AvgQmin": f"{latest_mean_q_min_pair:.2f}" if q_evaluation_history else "N/A",
+                "AvgDMSE": f"{latest_mean_double_mse:.4e}" if q_evaluation_history else "N/A",
                 "Fixed": f"{latest_fully_fixed_ratio * 100:.1f}%" if q_evaluation_history else "N/A",
                 "HQ": latest_high_quality_total if q_evaluation_history else 0,
             }

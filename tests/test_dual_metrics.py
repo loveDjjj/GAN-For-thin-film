@@ -10,6 +10,39 @@ from train.high_quality_solution_collector import initialize_high_quality_collec
 
 
 class DualMetricTests(unittest.TestCase):
+    def _build_minimal_dual_q_results(self):
+        return {
+            "q1_values": torch.tensor([10.0]),
+            "q2_values": torch.tensor([12.0]),
+            "q_min_pair_values": torch.tensor([10.0]),
+            "dual_valid_mask": torch.tensor([True]),
+            "double_lorentz_mse_values": torch.tensor([0.02]),
+            "double_lorentz_rmse_values": torch.tensor([0.14142136]),
+            "fom_lorentz_mse_values": torch.tensor([0.01]),
+            "fom_lorentz_rmse_values": torch.tensor([0.1]),
+            "q_score_values": torch.tensor([0.2]),
+            "rmse_score_values": torch.tensor([0.8]),
+            "fom_values": torch.tensor([0.4]),
+            "peak_wavelengths_1": torch.tensor([3.8]),
+            "peak_wavelengths_2": torch.tensor([5.0]),
+            "peak_absorptions_1": torch.tensor([0.9]),
+            "peak_absorptions_2": torch.tensor([0.92]),
+            "left_wavelengths_1": torch.tensor([3.75]),
+            "left_wavelengths_2": torch.tensor([4.95]),
+            "right_wavelengths_1": torch.tensor([3.85]),
+            "right_wavelengths_2": torch.tensor([5.05]),
+            "fwhm_1": torch.tensor([0.1]),
+            "fwhm_2": torch.tensor([0.1]),
+            "fixed_layer_count": torch.tensor([1]),
+            "fixed_layer_ratio": torch.tensor([0.5]),
+            "fully_fixed_mask": torch.tensor([False]),
+            "min_dominant_material_probability": torch.tensor([0.4]),
+            "mean_dominant_material_probability": torch.tensor([0.5]),
+            "dominant_material_probabilities": torch.tensor([[0.6, 0.4]]),
+            "dominant_material_indices": torch.tensor([[0, 1]]),
+            "fixed_layer_mask": torch.tensor([[True, False]]),
+        }
+
     def test_dual_q_metrics_returns_two_valid_q_values(self):
         compute_dual_q_metrics_torch = getattr(
             q_evaluator,
@@ -88,6 +121,28 @@ class DualMetricTests(unittest.TestCase):
 
         self.assertGreater(float(scores["fom_values"][0]), 0.0)
 
+    def test_summarize_q_results_uses_dual_summary_names(self):
+        summary = q_evaluator.summarize_q_results(
+            q_results=self._build_minimal_dual_q_results(),
+            epoch=1,
+            alpha=5.0,
+            num_samples=1,
+            lorentz_width=0.02,
+            dominant_prob_threshold=0.95,
+            fom_q_ref=200.0,
+            fom_lorentz_width=0.01,
+            fom_rmse_ref=0.05,
+            fom_weight=0.5,
+        )
+        self.assertIn("mean_q_min_pair", summary)
+        self.assertIn("max_q_min_pair", summary)
+        self.assertIn("mean_double_mse", summary)
+        self.assertIn("mean_double_rmse", summary)
+        self.assertNotIn("mean_q", summary)
+        self.assertNotIn("max_q", summary)
+        self.assertNotIn("mean_mse", summary)
+        self.assertNotIn("mean_rmse", summary)
+
     def test_save_q_evaluation_history_accepts_dual_semantic_columns(self):
         save_dir = Path(__file__).resolve().parent / ".tmp" / "dual_history"
         save_dir.mkdir(parents=True, exist_ok=True)
@@ -99,7 +154,8 @@ class DualMetricTests(unittest.TestCase):
                     "mean_q2": 12.0,
                     "mean_q_min_pair": 10.0,
                     "median_q_min_pair": 9.5,
-                    "max_q": 18.0,
+                    "max_q_min_pair": 18.0,
+                    "std_q_min_pair": 1.0,
                     "dual_valid_ratio": 0.75,
                     "mean_double_mse": 0.02,
                     "median_double_mse": 0.019,
@@ -124,6 +180,8 @@ class DualMetricTests(unittest.TestCase):
             self.assertIn("dual_valid_ratio", summary_df.columns)
             self.assertNotIn("mean_q", summary_df.columns)
             self.assertNotIn("valid_ratio", summary_df.columns)
+            self.assertIn("global_max_q_min_pair", summary_df.columns)
+            self.assertNotIn("global_max_q", summary_df.columns)
 
             curve_df = pd.read_csv(save_dir / "global_max_q_curve.csv")
             self.assertIn("epoch_max_q_min_pair", curve_df.columns)
@@ -173,46 +231,7 @@ class DualMetricTests(unittest.TestCase):
         save_dir = Path(__file__).resolve().parent / ".tmp" / "epoch_details"
         save_dir.mkdir(parents=True, exist_ok=True)
         try:
-            q_results = {
-                "q_values": torch.tensor([10.0]),
-                "q1_values": torch.tensor([10.0]),
-                "q2_values": torch.tensor([12.0]),
-                "q_min_pair_values": torch.tensor([10.0]),
-                "mse_values": torch.tensor([0.02]),
-                "rmse_values": torch.tensor([0.14142136]),
-                "double_lorentz_mse_values": torch.tensor([0.02]),
-                "double_lorentz_rmse_values": torch.tensor([0.14142136]),
-                "fom_lorentz_mse_values": torch.tensor([0.01]),
-                "fom_lorentz_rmse_values": torch.tensor([0.1]),
-                "q_score_values": torch.tensor([0.2]),
-                "rmse_score_values": torch.tensor([0.8]),
-                "fom_values": torch.tensor([0.4]),
-                "valid_mask": torch.tensor([True]),
-                "dual_valid_mask": torch.tensor([True]),
-                "peak_wavelengths": torch.tensor([4.4]),
-                "peak_wavelengths_1": torch.tensor([3.8]),
-                "peak_wavelengths_2": torch.tensor([5.0]),
-                "peak_absorptions": torch.tensor([0.9]),
-                "peak_absorptions_1": torch.tensor([0.9]),
-                "peak_absorptions_2": torch.tensor([0.92]),
-                "left_wavelengths": torch.tensor([4.35]),
-                "left_wavelengths_1": torch.tensor([3.75]),
-                "left_wavelengths_2": torch.tensor([4.95]),
-                "right_wavelengths": torch.tensor([4.45]),
-                "right_wavelengths_1": torch.tensor([3.85]),
-                "right_wavelengths_2": torch.tensor([5.05]),
-                "fwhm": torch.tensor([0.1]),
-                "fwhm_1": torch.tensor([0.1]),
-                "fwhm_2": torch.tensor([0.1]),
-                "fixed_layer_count": torch.tensor([1]),
-                "fixed_layer_ratio": torch.tensor([0.5]),
-                "fully_fixed_mask": torch.tensor([False]),
-                "min_dominant_material_probability": torch.tensor([0.4]),
-                "mean_dominant_material_probability": torch.tensor([0.5]),
-                "dominant_material_probabilities": torch.tensor([[0.6, 0.4]]),
-                "dominant_material_indices": torch.tensor([[0, 1]]),
-                "fixed_layer_mask": torch.tensor([[True, False]]),
-            }
+            q_results = self._build_minimal_dual_q_results()
             summary = {
                 "epoch": 1,
                 "mean_q_min_pair": 10.0,
