@@ -23,7 +23,7 @@ def visualize_best_samples(wavelengths, absorption_spectra, best_indices, best_r
         rmse = best_rmse[i]
 
         axes[i].plot(wavelengths, absorption_spectra[sample_idx], 'b-', label='Generated')
-        axes[i].plot(wavelengths, target, 'r--', label='Target Lorentzian')
+        axes[i].plot(wavelengths, target, 'r--', label='Target Spectrum')
 
         axes[i].set_title(f'Best Sample {i+1} (Index: {original_idx}, RMSE: {rmse:.6f})')
         axes[i].set_xlabel('Wavelength (μm)')
@@ -46,7 +46,7 @@ def save_best_results(output_dir, wavelengths, thicknesses, P, absorption_spectr
 
     target_data = pd.DataFrame()
     target_data['Wavelength (μm)'] = wavelengths
-    target_data['Target Lorentzian'] = target
+    target_data['Target Spectrum'] = target
     target_data.to_excel(os.path.join(save_dir, 'target_lorentzian.xlsx'), index=False)
 
     for i, idx in enumerate(best_indices):
@@ -54,7 +54,7 @@ def save_best_results(output_dir, wavelengths, thicknesses, P, absorption_spectr
         absorption_data = pd.DataFrame()
         absorption_data['Wavelength (μm)'] = wavelengths
         absorption_data['Absorption'] = absorption_spectra[idx]
-        absorption_data['Target Lorentzian'] = target
+        absorption_data['Target Spectrum'] = target
 
         excel_path = os.path.join(save_dir, f'best_sample_{i+1}_absorption.xlsx')
         absorption_data.to_excel(excel_path, index=False)
@@ -163,7 +163,7 @@ def save_pareto_samples(base_dir, wavelengths, absorption_spectra, thicknesses, 
         absorption_data = pd.DataFrame()
         absorption_data['Wavelength (μm)'] = wavelengths
         absorption_data['Absorption'] = absorption_spectra[idx]
-        absorption_data['Target Lorentzian'] = target
+        absorption_data['Target Spectrum'] = target
 
         excel_path = os.path.join(pareto_dir, f'pareto_sample_{i+1}_absorption.xlsx')
         absorption_data.to_excel(excel_path, index=False)
