@@ -1,6 +1,28 @@
 # Notes
 
 ## 需求（2026-04-16）
+继续收口双峰主链的语义细节，让训练历史曲线、单 epoch 评估图和推理导出文件优先使用双峰字段与命名，不再强依赖单峰列名。
+
+## 涉及文件
+- `train/q_evaluator.py`
+- `inference/visualization.py`
+- `tests/test_dual_metrics.py`
+- `tests/test_double_inference.py`
+- `README.md`
+- `docs/notes.md`
+- `docs/logs/2026-03.md`
+
+## 验证
+```bash
+conda run -n oneday python -m unittest tests.test_dual_metrics tests.test_double_inference -v
+conda run -n oneday python -m py_compile train/q_evaluator.py inference/visualization.py
+```
+
+## Git
+- branch: `double`
+- commit: `git commit -m "refactor: align dual peak reporting semantics"`
+
+## 需求（2026-04-16）
 删除与当前双峰训练主链无关的独立辅助脚本，只保留当前双峰训练与推理主链所需代码，并同步清理 README 的相关入口说明。
 
 ## 涉及文件

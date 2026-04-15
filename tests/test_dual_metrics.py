@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 
 import torch
 
@@ -84,6 +85,46 @@ class DualMetricTests(unittest.TestCase):
         )
 
         self.assertGreater(float(scores["fom_values"][0]), 0.0)
+
+    def test_save_q_evaluation_history_accepts_dual_semantic_columns(self):
+        save_dir = Path(__file__).resolve().parent / ".tmp" / "dual_history"
+        save_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            history = [
+                {
+                    "epoch": 1,
+                    "mean_q1": 10.0,
+                    "mean_q2": 12.0,
+                    "mean_q_min_pair": 10.0,
+                    "median_q_min_pair": 9.5,
+                    "max_q": 18.0,
+                    "dual_valid_ratio": 0.75,
+                    "mean_double_mse": 0.02,
+                    "median_double_mse": 0.019,
+                    "min_double_mse": 0.01,
+                    "max_double_mse": 0.03,
+                    "std_double_mse": 0.005,
+                    "epoch_best_fom": 0.25,
+                    "fully_fixed_ratio": 0.0,
+                    "mean_fixed_layer_ratio": 0.0,
+                    "mean_fixed_layer_count": 0.0,
+                    "median_fixed_layer_count": 0.0,
+                    "mean_min_dominant_material_probability": 0.3,
+                    "median_min_dominant_material_probability": 0.3,
+                    "dominant_material_prob_threshold": 0.95,
+                }
+            ]
+            q_evaluator.save_q_evaluation_history(history, str(save_dir))
+            self.assertTrue((save_dir / "q_mse_evaluation_summary.csv").exists())
+            self.assertTrue((save_dir / "q_mse_evaluation_curves.png").exists())
+        finally:
+            if save_dir.exists():
+                for child in sorted(save_dir.rglob("*"), reverse=True):
+                    if child.is_file():
+                        child.unlink()
+                    elif child.is_dir():
+                        child.rmdir()
+                save_dir.rmdir()
 
 
 if __name__ == "__main__":

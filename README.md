@@ -101,7 +101,7 @@ python infer.py --target_center_1 3.8 --target_center_2 5.2
   - 优质解收集：`high_quality_solutions/`、`summary/high_quality_solutions.csv`、`summary/high_quality_solution_distributions.png`、`epoch_*/epoch_*_sample_*/`
   - 可复现资产：`reproducibility/`、`training_target_center_pool_1.csv`、`training_target_center_pool_2.csv`、`q_eval_thickness_noise.pt`、`q_eval_material_noise.pt`
 - 推理输出：`generated_samples/best_samples_YYYYMMDD_HHMMSS/`
-  - 典型内容：`best_sample_*_absorption.xlsx`、`best_sample_*_structure.txt`、`best_samples_q.txt`、`pareto_front/`
+  - 典型内容：`target_spectrum.xlsx`、`best_sample_*_absorption.xlsx`、`best_sample_*_structure.txt`、`best_samples_q.txt`、`pareto_front/`
   - `best_samples_q.txt` 与 `pareto_samples_q.txt` 当前输出双窗口 `Q1/Q2/Q_min_pair`
 
 ## 阅读顺序

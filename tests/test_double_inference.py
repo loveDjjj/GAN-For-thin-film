@@ -1,8 +1,10 @@
 import unittest
+from pathlib import Path
 
 import torch
 
 from inference import filtering, qfactor
+from inference import visualization
 from model.Lorentzian.lorentzian_curves import generate_double_lorentzian_curves
 
 
@@ -58,6 +60,46 @@ class DoubleInferenceTests(unittest.TestCase):
 
         self.assertTrue(bool(results["dual_valid_mask"][0].item()))
         self.assertGreater(float(results["q_min_pair_values"][0]), 10.0)
+
+    def test_save_best_results_writes_target_spectrum_file(self):
+        class Params:
+            materials = ["Ge", "SiO2"]
+
+        wavelengths = torch.linspace(3.0, 6.0, 20).numpy()
+        target = generate_double_lorentzian_curves(
+            wavelengths=torch.linspace(3.0, 6.0, 20),
+            width=0.02,
+            center1=3.8,
+            center2=5.0,
+        ).numpy()
+        absorption = target.reshape(1, -1)
+        thicknesses = torch.tensor([[0.1, 0.2]])
+        probs = torch.tensor([[[0.9, 0.1], [0.2, 0.8]]])
+
+        tmpdir = Path(__file__).resolve().parent / ".tmp" / "best_results"
+        tmpdir.mkdir(parents=True, exist_ok=True)
+        try:
+            save_dir = visualization.save_best_results(
+                output_dir=str(tmpdir),
+                wavelengths=wavelengths,
+                thicknesses=thicknesses,
+                P=probs,
+                absorption_spectra=absorption,
+                best_indices=[0],
+                best_rmse=[0.1],
+                target=target,
+                params=Params(),
+                original_indices=[0],
+            )
+            self.assertTrue((Path(save_dir) / "target_spectrum.xlsx").exists())
+        finally:
+            if tmpdir.exists():
+                for child in sorted(tmpdir.rglob("*"), reverse=True):
+                    if child.is_file():
+                        child.unlink()
+                    elif child.is_dir():
+                        child.rmdir()
+                tmpdir.rmdir()
 
 
 if __name__ == "__main__":

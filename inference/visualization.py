@@ -47,7 +47,7 @@ def save_best_results(output_dir, wavelengths, thicknesses, P, absorption_spectr
     target_data = pd.DataFrame()
     target_data['Wavelength (μm)'] = wavelengths
     target_data['Target Spectrum'] = target
-    target_data.to_excel(os.path.join(save_dir, 'target_lorentzian.xlsx'), index=False)
+    target_data.to_excel(os.path.join(save_dir, 'target_spectrum.xlsx'), index=False)
 
     for i, idx in enumerate(best_indices):
         original_idx = original_indices[i]

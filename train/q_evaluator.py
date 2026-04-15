@@ -870,34 +870,43 @@ def save_q_evaluation_epoch(q_results, summary, save_dir, materials):
 
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
 
-    axes[0, 0].hist(q_values, bins=30, color="steelblue", alpha=0.85, edgecolor="black")
-    axes[0, 0].set_title(f"Q Distribution (Epoch {epoch})")
+    q1_values = q_results["q1_values"].detach().cpu().numpy()
+    q2_values = q_results["q2_values"].detach().cpu().numpy()
+    q_min_pair_values = q_results["q_min_pair_values"].detach().cpu().numpy()
+    peak_wavelengths_1 = q_results["peak_wavelengths_1"].detach().cpu().numpy()
+    peak_wavelengths_2 = q_results["peak_wavelengths_2"].detach().cpu().numpy()
+    double_mse_values = q_results["double_lorentz_mse_values"].detach().cpu().numpy()
+
+    axes[0, 0].hist(q_min_pair_values, bins=30, color="steelblue", alpha=0.85, edgecolor="black")
+    axes[0, 0].set_title(f"Q_min_pair Distribution (Epoch {epoch})")
     axes[0, 0].set_xlabel("Q")
     axes[0, 0].set_ylabel("Count")
     axes[0, 0].grid(True, alpha=0.3)
 
-    axes[0, 1].scatter(peak_wavelengths, q_values, s=10, alpha=0.65, color="darkorange")
-    axes[0, 1].set_title(f"Peak Wavelength vs Q (Epoch {epoch})")
+    axes[0, 1].scatter(peak_wavelengths_1, q1_values, s=10, alpha=0.65, color="darkorange", label="Peak 1 vs Q1")
+    axes[0, 1].scatter(peak_wavelengths_2, q2_values, s=10, alpha=0.65, color="tab:blue", label="Peak 2 vs Q2")
+    axes[0, 1].set_title(f"Target-Window Peak Wavelength vs Q (Epoch {epoch})")
     axes[0, 1].set_xlabel("Peak Wavelength (um)")
     axes[0, 1].set_ylabel("Q")
     axes[0, 1].grid(True, alpha=0.3)
+    axes[0, 1].legend()
 
-    axes[1, 0].hist(mse_values, bins=30, color="seagreen", alpha=0.85, edgecolor="black")
-    axes[1, 0].set_title(f"Lorentzian MSE Distribution (Epoch {epoch})")
+    axes[1, 0].hist(double_mse_values, bins=30, color="seagreen", alpha=0.85, edgecolor="black")
+    axes[1, 0].set_title(f"Double-Lorentzian MSE Distribution (Epoch {epoch})")
     axes[1, 0].set_xlabel("MSE")
     axes[1, 0].set_ylabel("Count")
     axes[1, 0].grid(True, alpha=0.3)
 
-    axes[1, 1].scatter(peak_wavelengths, mse_values, s=10, alpha=0.65, color="crimson")
-    axes[1, 1].set_title(f"Peak Wavelength vs Lorentzian MSE (Epoch {epoch})")
+    axes[1, 1].scatter(peak_wavelengths, double_mse_values, s=10, alpha=0.65, color="crimson")
+    axes[1, 1].set_title(f"Representative Peak Wavelength vs Double-Lorentzian MSE (Epoch {epoch})")
     axes[1, 1].set_xlabel("Peak Wavelength (um)")
     axes[1, 1].set_ylabel("MSE")
     axes[1, 1].grid(True, alpha=0.3)
 
     fig.suptitle(
         (
-            f"Epoch {epoch} Q/MSE Evaluation | mean_q={summary['mean_q']:.2f}, "
-            f"mean_mse={summary['mean_mse']:.6f}, valid={summary['valid_ratio'] * 100:.1f}%"
+            f"Epoch {epoch} Dual-Peak Evaluation | mean_q_min_pair={summary['mean_q_min_pair']:.2f}, "
+            f"mean_double_mse={summary['mean_double_mse']:.6f}, dual_valid={summary['dual_valid_ratio'] * 100:.1f}%"
         ),
         fontsize=14,
     )
@@ -973,7 +982,7 @@ def save_q_evaluation_epoch(q_results, summary, save_dir, materials):
     certainty_axes[1, 1].set_ylabel("Q")
     certainty_axes[1, 1].grid(True, alpha=0.3)
     certainty_colorbar = certainty_fig.colorbar(scatter, ax=certainty_axes[1, 1])
-    certainty_colorbar.set_label("Lorentzian MSE")
+    certainty_colorbar.set_label("Double-Lorentzian MSE")
 
     certainty_fig.suptitle(
         (
@@ -1007,6 +1016,13 @@ def _save_single_metric_curve(curve_df, output_path, y_column, y_label, title, c
     plt.close(fig)
 
 
+def _pick_history_column(history_df, *candidates):
+    for candidate in candidates:
+        if candidate in history_df.columns:
+            return candidate
+    raise KeyError(f"None of the candidate columns exist: {candidates}")
+
+
 def save_q_evaluation_history(history, save_dir):
     """Save cross-epoch Q/MSE/certainty summary CSV and plots."""
     if not history:
@@ -1020,41 +1036,53 @@ def save_q_evaluation_history(history, save_dir):
     summary_path = os.path.join(save_dir, "q_mse_evaluation_summary.csv")
     history_df.to_csv(summary_path, index=False)
 
+    q_primary_mean_column = _pick_history_column(history_df, "mean_q_min_pair", "mean_q")
+    q_primary_median_column = _pick_history_column(history_df, "median_q_min_pair", "median_q")
+    valid_ratio_column = _pick_history_column(history_df, "dual_valid_ratio", "valid_ratio")
+    mse_mean_column = _pick_history_column(history_df, "mean_double_mse", "mean_mse")
+    mse_median_column = _pick_history_column(history_df, "median_double_mse", "median_mse")
+    mse_min_column = _pick_history_column(history_df, "min_double_mse", "min_mse")
+    mse_max_column = _pick_history_column(history_df, "max_double_mse", "max_mse")
+    mse_std_column = _pick_history_column(history_df, "std_double_mse", "std_mse")
+
     fig, axes = plt.subplots(2, 2, figsize=(14, 10), sharex=True)
 
-    axes[0, 0].plot(history_df["epoch"], history_df["mean_q"], marker="o", linewidth=2, label="Mean Q")
-    axes[0, 0].plot(history_df["epoch"], history_df["median_q"], marker="s", linewidth=2, label="Median Q")
-    axes[0, 0].plot(history_df["epoch"], history_df["max_q"], marker="^", linewidth=2, label="Max Q")
+    if "mean_q1" in history_df.columns:
+        axes[0, 0].plot(history_df["epoch"], history_df["mean_q1"], marker="o", linewidth=2, label="Mean Q1")
+    if "mean_q2" in history_df.columns:
+        axes[0, 0].plot(history_df["epoch"], history_df["mean_q2"], marker="s", linewidth=2, label="Mean Q2")
+    axes[0, 0].plot(history_df["epoch"], history_df[q_primary_mean_column], marker="^", linewidth=2, label="Mean Q_min_pair")
+    axes[0, 0].plot(history_df["epoch"], history_df["max_q"], marker="d", linewidth=2, label="Max Q_min_pair")
     axes[0, 0].set_ylabel("Q")
-    axes[0, 0].set_title("Q Statistics During Training")
+    axes[0, 0].set_title("Dual-Peak Q Statistics During Training")
     axes[0, 0].grid(True, alpha=0.3)
     axes[0, 0].legend()
 
     axes[0, 1].plot(
         history_df["epoch"],
-        history_df["valid_ratio"] * 100.0,
+        history_df[valid_ratio_column] * 100.0,
         marker="o",
         linewidth=2,
         color="tab:green",
     )
     axes[0, 1].set_ylabel("Valid Ratio (%)")
-    axes[0, 1].set_title("Share of Samples with Valid Half-Max Crossings")
+    axes[0, 1].set_title("Share of Samples with Valid Dual Peaks")
     axes[0, 1].grid(True, alpha=0.3)
 
-    axes[1, 0].plot(history_df["epoch"], history_df["mean_mse"], marker="o", linewidth=2, label="Mean MSE")
-    axes[1, 0].plot(history_df["epoch"], history_df["median_mse"], marker="s", linewidth=2, label="Median MSE")
-    axes[1, 0].plot(history_df["epoch"], history_df["min_mse"], marker="^", linewidth=2, label="Min MSE")
+    axes[1, 0].plot(history_df["epoch"], history_df[mse_mean_column], marker="o", linewidth=2, label="Mean Double MSE")
+    axes[1, 0].plot(history_df["epoch"], history_df[mse_median_column], marker="s", linewidth=2, label="Median Double MSE")
+    axes[1, 0].plot(history_df["epoch"], history_df[mse_min_column], marker="^", linewidth=2, label="Min Double MSE")
     axes[1, 0].set_xlabel("Epoch")
     axes[1, 0].set_ylabel("MSE")
-    axes[1, 0].set_title("Peak-Aligned Lorentzian MSE During Training")
+    axes[1, 0].set_title("Double-Lorentzian MSE During Training")
     axes[1, 0].grid(True, alpha=0.3)
     axes[1, 0].legend()
 
-    axes[1, 1].plot(history_df["epoch"], history_df["max_mse"], marker="o", linewidth=2, label="Max MSE")
-    axes[1, 1].plot(history_df["epoch"], history_df["std_mse"], marker="s", linewidth=2, label="Std MSE")
+    axes[1, 1].plot(history_df["epoch"], history_df[mse_max_column], marker="o", linewidth=2, label="Max Double MSE")
+    axes[1, 1].plot(history_df["epoch"], history_df[mse_std_column], marker="s", linewidth=2, label="Std Double MSE")
     axes[1, 1].set_xlabel("Epoch")
     axes[1, 1].set_ylabel("MSE")
-    axes[1, 1].set_title("MSE Spread During Training")
+    axes[1, 1].set_title("Double-MSE Spread During Training")
     axes[1, 1].grid(True, alpha=0.3)
     axes[1, 1].legend()
 
@@ -1075,8 +1103,8 @@ def save_q_evaluation_history(history, save_dir):
         curve_df=global_max_q_curve_df,
         output_path=global_max_q_plot_path,
         y_column="global_max_q",
-        y_label="Global Max Q",
-        title="Global Max Q During Training",
+        y_label="Global Max Q_min_pair",
+        title="Global Max Q_min_pair During Training",
         color="tab:green",
     )
 
