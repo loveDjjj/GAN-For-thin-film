@@ -1,6 +1,25 @@
 # Notes
 
 ## 需求（2026-04-16）
+继续收缩 `train/q_evaluator.py` 内部的单峰兼容别名，把 `q_values/mse_values/rmse_values/peak_wavelengths/peak_absorptions/fwhm/valid_mask` 从主结果字典层移除，只保留双峰主字段在主链上传递。
+
+## 涉及文件
+- `train/q_evaluator.py`
+- `tests/test_dual_metrics.py`
+- `docs/notes.md`
+- `docs/logs/2026-03.md`
+
+## 验证
+```bash
+conda run -n oneday python -m unittest tests.test_dual_metrics tests.test_double_inference -v
+conda run -n oneday python -m py_compile train/q_evaluator.py train/high_quality_solution_collector.py
+```
+
+## Git
+- branch: `double`
+- commit: `git commit -m "refactor: shrink dual metric compatibility aliases"`
+
+## 需求（2026-04-16）
 继续收口双峰导出层，移除 `q_mse_metrics_epoch_*.csv`、`high_quality_solutions.csv` 和部分结构文本中的单峰泛化别名字段，并让 `global_max_q_curve.csv` 明确使用 `q_min_pair` 语义列名。
 
 ## 涉及文件

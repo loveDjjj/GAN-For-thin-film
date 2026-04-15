@@ -299,9 +299,6 @@ def compute_dual_q_metrics_torch(
 
     q_min_pair_values = torch.minimum(first["q_values"], second["q_values"])
     dual_valid_mask = first["valid_mask"] & second["valid_mask"]
-    mean_peak_wavelengths = (first["peak_wavelengths"] + second["peak_wavelengths"]) * 0.5
-    min_peak_absorptions = torch.minimum(first["peak_absorptions"], second["peak_absorptions"])
-    max_fwhm = torch.maximum(first["fwhm"], second["fwhm"])
 
     return {
         "q1_values": first["q_values"],
@@ -318,14 +315,6 @@ def compute_dual_q_metrics_torch(
         "right_wavelengths_2": second["right_wavelengths"],
         "fwhm_1": first["fwhm"],
         "fwhm_2": second["fwhm"],
-        # Compatibility aliases for existing downstream plots/history.
-        "q_values": q_min_pair_values,
-        "valid_mask": dual_valid_mask,
-        "peak_wavelengths": mean_peak_wavelengths,
-        "peak_absorptions": min_peak_absorptions,
-        "left_wavelengths": first["left_wavelengths"],
-        "right_wavelengths": second["right_wavelengths"],
-        "fwhm": max_fwhm,
     }
 
 
@@ -462,19 +451,15 @@ def summarize_q_results(
     fom_weight,
 ):
     """Compute summary statistics for a batch of Q/MSE/certainty results."""
-    q_values = q_results["q_values"]
-    mse_values = q_results["mse_values"]
-    rmse_values = q_results["rmse_values"]
-    q1_values = q_results.get("q1_values", q_values)
-    q2_values = q_results.get("q2_values", q_values)
-    q_min_pair_values = q_results.get("q_min_pair_values", q_values)
-    dual_valid_mask = q_results.get("dual_valid_mask", q_results["valid_mask"])
-    double_lorentz_mse_values = q_results.get("double_lorentz_mse_values", mse_values)
-    double_lorentz_rmse_values = q_results.get("double_lorentz_rmse_values", rmse_values)
+    q1_values = q_results["q1_values"]
+    q2_values = q_results["q2_values"]
+    q_min_pair_values = q_results["q_min_pair_values"]
+    dual_valid_mask = q_results["dual_valid_mask"]
+    double_lorentz_mse_values = q_results["double_lorentz_mse_values"]
+    double_lorentz_rmse_values = q_results["double_lorentz_rmse_values"]
     fom_lorentz_mse_values = q_results["fom_lorentz_mse_values"]
     fom_lorentz_rmse_values = q_results["fom_lorentz_rmse_values"]
     fom_values = q_results["fom_values"]
-    valid_mask = q_results["valid_mask"]
     fixed_layer_count = q_results["fixed_layer_count"].float()
     fixed_layer_ratio = q_results["fixed_layer_ratio"]
     fully_fixed_mask = q_results["fully_fixed_mask"]
@@ -493,30 +478,30 @@ def summarize_q_results(
         "fom_lorentz_width": float(fom_lorentz_width),
         "fom_rmse_ref": float(fom_rmse_ref),
         "fom_weight": float(fom_weight),
-        "valid_count": int(valid_mask.sum().item()),
+        "valid_count": int(dual_valid_mask.sum().item()),
         "valid_ratio": float(dual_valid_mask.float().mean().item()),
         "dual_valid_ratio": float(dual_valid_mask.float().mean().item()),
         "mean_q1": float(q1_values.mean().item()),
         "mean_q2": float(q2_values.mean().item()),
         "mean_q_min_pair": float(q_min_pair_values.mean().item()),
         "median_q_min_pair": float(q_min_pair_values.median().item()),
-        "mean_q": float(q_values.mean().item()),
-        "median_q": float(q_values.median().item()),
-        "max_q": float(q_values.max().item()),
-        "std_q": float(q_values.std(unbiased=False).item()),
+        "mean_q": float(q_min_pair_values.mean().item()),
+        "median_q": float(q_min_pair_values.median().item()),
+        "max_q": float(q_min_pair_values.max().item()),
+        "std_q": float(q_min_pair_values.std(unbiased=False).item()),
         "mean_double_mse": float(double_lorentz_mse_values.mean().item()),
         "median_double_mse": float(double_lorentz_mse_values.median().item()),
         "mean_double_rmse": float(double_lorentz_rmse_values.mean().item()),
         "median_double_rmse": float(double_lorentz_rmse_values.median().item()),
-        "mean_mse": float(mse_values.mean().item()),
-        "median_mse": float(mse_values.median().item()),
-        "min_mse": float(mse_values.min().item()),
-        "max_mse": float(mse_values.max().item()),
-        "std_mse": float(mse_values.std(unbiased=False).item()),
-        "mean_rmse": float(rmse_values.mean().item()),
-        "median_rmse": float(rmse_values.median().item()),
-        "min_rmse": float(rmse_values.min().item()),
-        "max_rmse": float(rmse_values.max().item()),
+        "mean_mse": float(double_lorentz_mse_values.mean().item()),
+        "median_mse": float(double_lorentz_mse_values.median().item()),
+        "min_mse": float(double_lorentz_mse_values.min().item()),
+        "max_mse": float(double_lorentz_mse_values.max().item()),
+        "std_mse": float(double_lorentz_mse_values.std(unbiased=False).item()),
+        "mean_rmse": float(double_lorentz_rmse_values.mean().item()),
+        "median_rmse": float(double_lorentz_rmse_values.median().item()),
+        "min_rmse": float(double_lorentz_rmse_values.min().item()),
+        "max_rmse": float(double_lorentz_rmse_values.max().item()),
         "mean_fom_lorentz_mse": float(fom_lorentz_mse_values.mean().item()),
         "median_fom_lorentz_mse": float(fom_lorentz_mse_values.median().item()),
         "mean_fom_lorentz_rmse": float(fom_lorentz_rmse_values.mean().item()),
@@ -746,7 +731,7 @@ def save_global_best_sample_histories(summary, q_results, wavelengths, absorptio
     os.makedirs(tracking_dir, exist_ok=True)
 
     metric_specs = (
-        ("global_max_q", "q_values"),
+        ("global_max_q", "q_min_pair_values"),
         ("global_best_fom", "fom_values"),
     )
     for tracked_metric_name, tensor_key in metric_specs:
@@ -777,20 +762,11 @@ def save_q_evaluation_epoch(q_results, summary, save_dir, materials):
     os.makedirs(save_dir, exist_ok=True)
 
     epoch = summary["epoch"]
-    q_values = q_results["q_values"].detach().cpu().numpy()
-    mse_values = q_results["mse_values"].detach().cpu().numpy()
-    rmse_values = q_results["rmse_values"].detach().cpu().numpy()
     fom_lorentz_mse_values = q_results["fom_lorentz_mse_values"].detach().cpu().numpy()
     fom_lorentz_rmse_values = q_results["fom_lorentz_rmse_values"].detach().cpu().numpy()
     q_score_values = q_results["q_score_values"].detach().cpu().numpy()
     rmse_score_values = q_results["rmse_score_values"].detach().cpu().numpy()
     fom_values = q_results["fom_values"].detach().cpu().numpy()
-    valid_mask = q_results["valid_mask"].detach().cpu().numpy()
-    peak_wavelengths = q_results["peak_wavelengths"].detach().cpu().numpy()
-    peak_absorptions = q_results["peak_absorptions"].detach().cpu().numpy()
-    left_wavelengths = q_results["left_wavelengths"].detach().cpu().numpy()
-    right_wavelengths = q_results["right_wavelengths"].detach().cpu().numpy()
-    fwhm = q_results["fwhm"].detach().cpu().numpy()
     fixed_layer_count = q_results["fixed_layer_count"].detach().cpu().numpy()
     fixed_layer_ratio = q_results["fixed_layer_ratio"].detach().cpu().numpy()
     fully_fixed_mask = q_results["fully_fixed_mask"].detach().cpu().numpy()
@@ -802,7 +778,7 @@ def save_q_evaluation_epoch(q_results, summary, save_dir, materials):
 
     details_df = pd.DataFrame(
         {
-            "sample_index": range(len(q_values)),
+            "sample_index": range(len(q_results["q1_values"])),
             "q1": q_results["q1_values"].detach().cpu().numpy(),
             "q2": q_results["q2_values"].detach().cpu().numpy(),
             "q_min_pair": q_results["q_min_pair_values"].detach().cpu().numpy(),
@@ -861,6 +837,7 @@ def save_q_evaluation_epoch(q_results, summary, save_dir, materials):
     peak_wavelengths_1 = q_results["peak_wavelengths_1"].detach().cpu().numpy()
     peak_wavelengths_2 = q_results["peak_wavelengths_2"].detach().cpu().numpy()
     double_mse_values = q_results["double_lorentz_mse_values"].detach().cpu().numpy()
+    representative_peak_wavelengths = (peak_wavelengths_1 + peak_wavelengths_2) * 0.5
 
     axes[0, 0].hist(q_min_pair_values, bins=30, color="steelblue", alpha=0.85, edgecolor="black")
     axes[0, 0].set_title(f"Q_min_pair Distribution (Epoch {epoch})")
@@ -882,7 +859,7 @@ def save_q_evaluation_epoch(q_results, summary, save_dir, materials):
     axes[1, 0].set_ylabel("Count")
     axes[1, 0].grid(True, alpha=0.3)
 
-    axes[1, 1].scatter(peak_wavelengths, double_mse_values, s=10, alpha=0.65, color="crimson")
+    axes[1, 1].scatter(representative_peak_wavelengths, double_mse_values, s=10, alpha=0.65, color="crimson")
     axes[1, 1].set_title(f"Representative Peak Wavelength vs Double-Lorentzian MSE (Epoch {epoch})")
     axes[1, 1].set_xlabel("Peak Wavelength (um)")
     axes[1, 1].set_ylabel("MSE")
@@ -950,8 +927,8 @@ def save_q_evaluation_epoch(q_results, summary, save_dir, materials):
 
     scatter = certainty_axes[1, 1].scatter(
         min_dominant_probabilities,
-        q_values,
-        c=mse_values,
+        q_min_pair_values,
+        c=double_mse_values,
         cmap="viridis_r",
         s=14,
         alpha=0.7,
@@ -1309,8 +1286,6 @@ def evaluate_generator_q(generator, params, device, alpha, epoch, save_dir, high
                     width=float(getattr(params, "lorentz_width", 0.02)),
                 )
             )
-            batch_results["mse_values"] = batch_results["double_lorentz_mse_values"]
-            batch_results["rmse_values"] = batch_results["double_lorentz_rmse_values"]
             batch_results["fom_lorentz_mse_values"] = batch_results["fom_double_lorentz_mse_values"]
             batch_results["fom_lorentz_rmse_values"] = batch_results["fom_double_lorentz_rmse_values"]
             batch_results.update(
