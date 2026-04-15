@@ -96,9 +96,11 @@ python infer.py --target_center_1 3.8 --target_center_2 5.2
   - Q/MSE 评估：`q_evaluation/`、`q_mse_evaluation_summary.csv`、`q_mse_evaluation_curves.png`、`q_mse_metrics_epoch_*.csv`、`global_max_q_curve.png`、`global_max_q_curve.csv`、`global_best_fom_curve.png`、`global_best_fom_curve.csv`
   - `q_mse_metrics_epoch_*.csv` 当前额外包含 `q1`、`q2`、`q_min_pair`、`double_lorentz_mse`、`double_lorentz_rmse`、`peak_wavelength_1_um`、`peak_wavelength_2_um`、`peak_absorption_1`、`peak_absorption_2`、`fwhm_1_um`、`fwhm_2_um`、`q_score`、`rmse_score`、`fom` 等列
   - `q_mse_evaluation_summary.csv` 当前额外包含 `mean_q1`、`mean_q2`、`mean_q_min_pair`、`mean_double_mse`、`mean_double_rmse`、`dual_valid_ratio`、`epoch_best_fom`、`global_max_q`、`global_best_fom`
+  - `global_max_q_curve.csv` 当前导出列为 `epoch_max_q_min_pair` 与 `global_max_q_min_pair`，文件名保持不变
   - 全局最优样本追踪：`q_evaluation/global_best_samples/`，当出现新的 `global_max_q` 或 `global_best_fom` 时，会新建按 epoch 命名的文件，例如 `global_max_q_epoch_0020_structure.txt`、`global_max_q_epoch_0020_spectrum.csv`、`global_max_q_epoch_0020_spectrum.png`；`global_best_fom` 同理。四个全局曲线文件会继续保留。
   - 结构固定度统计：`q_evaluation/material_certainty_epoch_*.png`、`q_evaluation/material_certainty_curves.png`、`q_evaluation/material_certainty_layers_epoch_*.csv`、`q_evaluation/material_certainty_layer_history.csv`
   - 优质解收集：`high_quality_solutions/`、`summary/high_quality_solutions.csv`、`summary/high_quality_solution_distributions.png`、`epoch_*/epoch_*_sample_*/`
+  - `high_quality_solutions.csv` 当前主字段为 `q1`、`q2`、`q_min_pair`、`double_lorentz_mse`、`peak_wavelength_1_um`、`peak_wavelength_2_um`、`peak_absorption_1`、`peak_absorption_2`、`fwhm_1_um`、`fwhm_2_um`
   - 可复现资产：`reproducibility/`、`training_target_center_pool_1.csv`、`training_target_center_pool_2.csv`、`q_eval_thickness_noise.pt`、`q_eval_material_noise.pt`
 - 推理输出：`generated_samples/best_samples_YYYYMMDD_HHMMSS/`
   - 典型内容：`target_spectrum.xlsx`、`best_sample_*_absorption.xlsx`、`best_sample_*_structure.txt`、`best_samples_q.txt`、`pareto_front/`

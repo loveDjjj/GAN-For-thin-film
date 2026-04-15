@@ -1,6 +1,27 @@
 # Notes
 
 ## 需求（2026-04-16）
+继续收口双峰导出层，移除 `q_mse_metrics_epoch_*.csv`、`high_quality_solutions.csv` 和部分结构文本中的单峰泛化别名字段，并让 `global_max_q_curve.csv` 明确使用 `q_min_pair` 语义列名。
+
+## 涉及文件
+- `train/q_evaluator.py`
+- `train/high_quality_solution_collector.py`
+- `tests/test_dual_metrics.py`
+- `README.md`
+- `docs/notes.md`
+- `docs/logs/2026-03.md`
+
+## 验证
+```bash
+conda run -n oneday python -m unittest tests.test_dual_metrics tests.test_double_inference -v
+conda run -n oneday python -m py_compile train/q_evaluator.py train/high_quality_solution_collector.py inference/visualization.py
+```
+
+## Git
+- branch: `double`
+- commit: `git commit -m "refactor: remove legacy single-peak export aliases"`
+
+## 需求（2026-04-16）
 继续收口双峰主链的语义细节，让训练历史曲线、单 epoch 评估图和推理导出文件优先使用双峰字段与命名，不再强依赖单峰列名。
 
 ## 涉及文件

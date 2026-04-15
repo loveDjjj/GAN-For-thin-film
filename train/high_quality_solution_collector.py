@@ -147,19 +147,14 @@ def initialize_high_quality_collection(save_dir, criteria):
                 "epoch",
                 "alpha",
                 "evaluation_sample_index",
-                "q_value",
                 "q1",
                 "q2",
                 "q_min_pair",
-                "lorentz_mse",
                 "double_lorentz_mse",
-                "peak_wavelength_um",
                 "peak_wavelength_1_um",
                 "peak_wavelength_2_um",
-                "peak_absorption",
                 "peak_absorption_1",
                 "peak_absorption_2",
-                "fwhm_um",
                 "fwhm_1_um",
                 "fwhm_2_um",
                 "total_thickness_um",
@@ -297,19 +292,14 @@ def collect_high_quality_solutions_batch(
             "evaluation_sample_index": global_index,
             "criteria": criteria,
                 "metrics": {
-                    "q_value": float(selected_q_values[local_index].item()),
                     "q1": float(selected_q1_values[local_index].item()),
                     "q2": float(selected_q2_values[local_index].item()),
                     "q_min_pair": float(selected_q_min_pair_values[local_index].item()),
-                    "lorentz_mse": float(selected_mse_values[local_index].item()),
                     "double_lorentz_mse": float(selected_double_mse_values[local_index].item()),
-                    "peak_wavelength_um": float(selected_peak_positions[local_index].item()),
                     "peak_wavelength_1_um": float(selected_peak_positions_1[local_index].item()),
                     "peak_wavelength_2_um": float(selected_peak_positions_2[local_index].item()),
-                    "peak_absorption": float(selected_peak_absorptions[local_index].item()),
                     "peak_absorption_1": float(selected_peak_absorptions_1[local_index].item()),
                     "peak_absorption_2": float(selected_peak_absorptions_2[local_index].item()),
-                    "fwhm_um": float(selected_fwhm[local_index].item()),
                     "fwhm_1_um": float(selected_fwhm_1[local_index].item()),
                     "fwhm_2_um": float(selected_fwhm_2[local_index].item()),
                     "total_thickness_um": total_thickness,
@@ -331,19 +321,14 @@ def collect_high_quality_solutions_batch(
                 "epoch": int(epoch),
                 "alpha": float(alpha),
                 "evaluation_sample_index": global_index,
-                "q_value": float(selected_q_values[local_index].item()),
                 "q1": float(selected_q1_values[local_index].item()),
                 "q2": float(selected_q2_values[local_index].item()),
                 "q_min_pair": float(selected_q_min_pair_values[local_index].item()),
-                "lorentz_mse": float(selected_mse_values[local_index].item()),
                 "double_lorentz_mse": float(selected_double_mse_values[local_index].item()),
-                "peak_wavelength_um": float(selected_peak_positions[local_index].item()),
                 "peak_wavelength_1_um": float(selected_peak_positions_1[local_index].item()),
                 "peak_wavelength_2_um": float(selected_peak_positions_2[local_index].item()),
-                "peak_absorption": float(selected_peak_absorptions[local_index].item()),
                 "peak_absorption_1": float(selected_peak_absorptions_1[local_index].item()),
                 "peak_absorption_2": float(selected_peak_absorptions_2[local_index].item()),
-                "fwhm_um": float(selected_fwhm[local_index].item()),
                 "fwhm_1_um": float(selected_fwhm_1[local_index].item()),
                 "fwhm_2_um": float(selected_fwhm_2[local_index].item()),
                 "total_thickness_um": total_thickness,
@@ -377,18 +362,20 @@ def update_high_quality_collection_summary(save_dir, new_records):
         combined_df = existing_df
 
     if not combined_df.empty:
+        combined_df["min_peak_absorption"] = combined_df[["peak_absorption_1", "peak_absorption_2"]].min(axis=1)
         combined_df = combined_df.drop_duplicates(subset=["sample_id"], keep="last")
         combined_df = combined_df.sort_values(
-            by=["epoch", "q_value", "peak_absorption"],
+            by=["epoch", "q_min_pair", "min_peak_absorption"],
             ascending=[True, False, False],
         ).reset_index(drop=True)
     combined_df.to_csv(registry_path, index=False)
 
     summary_payload = {
         "total_high_quality_solutions": int(len(combined_df)),
-        "best_q": float(combined_df["q_value"].max()) if not combined_df.empty else 0.0,
-        "lowest_mse": float(combined_df["lorentz_mse"].min()) if not combined_df.empty else 0.0,
-        "highest_peak_absorption": float(combined_df["peak_absorption"].max()) if not combined_df.empty else 0.0,
+        "best_q_min_pair": float(combined_df["q_min_pair"].max()) if not combined_df.empty else 0.0,
+        "lowest_double_lorentz_mse": float(combined_df["double_lorentz_mse"].min()) if not combined_df.empty else 0.0,
+        "highest_peak_absorption_1": float(combined_df["peak_absorption_1"].max()) if not combined_df.empty else 0.0,
+        "highest_peak_absorption_2": float(combined_df["peak_absorption_2"].max()) if not combined_df.empty else 0.0,
         "largest_total_thickness_um": float(combined_df["total_thickness_um"].max()) if not combined_df.empty else 0.0,
         "epochs_with_hits": (
             sorted(int(epoch) for epoch in combined_df["epoch"].unique().tolist())
@@ -404,26 +391,26 @@ def update_high_quality_collection_summary(save_dir, new_records):
     if not combined_df.empty:
         fig, axes = plt.subplots(2, 3, figsize=(16, 9))
 
-        axes[0, 0].hist(combined_df["peak_wavelength_um"], bins=20, color="royalblue", alpha=0.85, edgecolor="black")
-        axes[0, 0].set_title("Peak Wavelength Distribution")
+        axes[0, 0].hist(combined_df["peak_wavelength_1_um"], bins=20, color="royalblue", alpha=0.85, edgecolor="black")
+        axes[0, 0].set_title("Peak 1 Wavelength Distribution")
         axes[0, 0].set_xlabel("Wavelength (um)")
         axes[0, 0].set_ylabel("Count")
         axes[0, 0].grid(True, alpha=0.3)
 
-        axes[0, 1].hist(combined_df["q_value"], bins=20, color="darkorange", alpha=0.85, edgecolor="black")
-        axes[0, 1].set_title("Q Distribution")
+        axes[0, 1].hist(combined_df["q_min_pair"], bins=20, color="darkorange", alpha=0.85, edgecolor="black")
+        axes[0, 1].set_title("Q_min_pair Distribution")
         axes[0, 1].set_xlabel("Q")
         axes[0, 1].set_ylabel("Count")
         axes[0, 1].grid(True, alpha=0.3)
 
-        axes[0, 2].hist(combined_df["lorentz_mse"], bins=20, color="seagreen", alpha=0.85, edgecolor="black")
-        axes[0, 2].set_title("Lorentzian MSE Distribution")
+        axes[0, 2].hist(combined_df["double_lorentz_mse"], bins=20, color="seagreen", alpha=0.85, edgecolor="black")
+        axes[0, 2].set_title("Double-Lorentzian MSE Distribution")
         axes[0, 2].set_xlabel("MSE")
         axes[0, 2].set_ylabel("Count")
         axes[0, 2].grid(True, alpha=0.3)
 
-        axes[1, 0].hist(combined_df["peak_absorption"], bins=20, color="crimson", alpha=0.85, edgecolor="black")
-        axes[1, 0].set_title("Peak Absorption Distribution")
+        axes[1, 0].hist(combined_df["peak_absorption_1"], bins=20, color="crimson", alpha=0.85, edgecolor="black")
+        axes[1, 0].set_title("Peak 1 Absorption Distribution")
         axes[1, 0].set_xlabel("Peak Absorption")
         axes[1, 0].set_ylabel("Count")
         axes[1, 0].grid(True, alpha=0.3)

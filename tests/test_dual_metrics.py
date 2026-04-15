@@ -1,10 +1,12 @@
 import unittest
 from pathlib import Path
 
+import pandas as pd
 import torch
 
 from model.Lorentzian.lorentzian_curves import generate_double_lorentzian_curves
 from train import q_evaluator
+from train.high_quality_solution_collector import initialize_high_quality_collection
 
 
 class DualMetricTests(unittest.TestCase):
@@ -117,6 +119,130 @@ class DualMetricTests(unittest.TestCase):
             q_evaluator.save_q_evaluation_history(history, str(save_dir))
             self.assertTrue((save_dir / "q_mse_evaluation_summary.csv").exists())
             self.assertTrue((save_dir / "q_mse_evaluation_curves.png").exists())
+            summary_df = pd.read_csv(save_dir / "q_mse_evaluation_summary.csv")
+            self.assertIn("mean_q_min_pair", summary_df.columns)
+            self.assertIn("dual_valid_ratio", summary_df.columns)
+            self.assertNotIn("mean_q", summary_df.columns)
+            self.assertNotIn("valid_ratio", summary_df.columns)
+
+            curve_df = pd.read_csv(save_dir / "global_max_q_curve.csv")
+            self.assertIn("epoch_max_q_min_pair", curve_df.columns)
+            self.assertIn("global_max_q_min_pair", curve_df.columns)
+            self.assertNotIn("epoch_max_q", curve_df.columns)
+        finally:
+            if save_dir.exists():
+                for child in sorted(save_dir.rglob("*"), reverse=True):
+                    if child.is_file():
+                        child.unlink()
+                    elif child.is_dir():
+                        child.rmdir()
+                save_dir.rmdir()
+
+    def test_high_quality_registry_uses_dual_field_names(self):
+        save_dir = Path(__file__).resolve().parent / ".tmp" / "high_quality"
+        save_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            initialize_high_quality_collection(str(save_dir), {"enabled": True})
+            registry_df = pd.read_csv(save_dir / "summary" / "high_quality_solutions.csv", nrows=0)
+            columns = set(registry_df.columns.tolist())
+            self.assertIn("q1", columns)
+            self.assertIn("q2", columns)
+            self.assertIn("q_min_pair", columns)
+            self.assertIn("double_lorentz_mse", columns)
+            self.assertIn("peak_wavelength_1_um", columns)
+            self.assertIn("peak_wavelength_2_um", columns)
+            self.assertIn("peak_absorption_1", columns)
+            self.assertIn("peak_absorption_2", columns)
+            self.assertIn("fwhm_1_um", columns)
+            self.assertIn("fwhm_2_um", columns)
+            self.assertNotIn("q_value", columns)
+            self.assertNotIn("lorentz_mse", columns)
+            self.assertNotIn("peak_wavelength_um", columns)
+            self.assertNotIn("peak_absorption", columns)
+            self.assertNotIn("fwhm_um", columns)
+        finally:
+            if save_dir.exists():
+                for child in sorted(save_dir.rglob("*"), reverse=True):
+                    if child.is_file():
+                        child.unlink()
+                    elif child.is_dir():
+                        child.rmdir()
+                save_dir.rmdir()
+
+    def test_save_q_evaluation_epoch_details_use_dual_columns(self):
+        save_dir = Path(__file__).resolve().parent / ".tmp" / "epoch_details"
+        save_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            q_results = {
+                "q_values": torch.tensor([10.0]),
+                "q1_values": torch.tensor([10.0]),
+                "q2_values": torch.tensor([12.0]),
+                "q_min_pair_values": torch.tensor([10.0]),
+                "mse_values": torch.tensor([0.02]),
+                "rmse_values": torch.tensor([0.14142136]),
+                "double_lorentz_mse_values": torch.tensor([0.02]),
+                "double_lorentz_rmse_values": torch.tensor([0.14142136]),
+                "fom_lorentz_mse_values": torch.tensor([0.01]),
+                "fom_lorentz_rmse_values": torch.tensor([0.1]),
+                "q_score_values": torch.tensor([0.2]),
+                "rmse_score_values": torch.tensor([0.8]),
+                "fom_values": torch.tensor([0.4]),
+                "valid_mask": torch.tensor([True]),
+                "dual_valid_mask": torch.tensor([True]),
+                "peak_wavelengths": torch.tensor([4.4]),
+                "peak_wavelengths_1": torch.tensor([3.8]),
+                "peak_wavelengths_2": torch.tensor([5.0]),
+                "peak_absorptions": torch.tensor([0.9]),
+                "peak_absorptions_1": torch.tensor([0.9]),
+                "peak_absorptions_2": torch.tensor([0.92]),
+                "left_wavelengths": torch.tensor([4.35]),
+                "left_wavelengths_1": torch.tensor([3.75]),
+                "left_wavelengths_2": torch.tensor([4.95]),
+                "right_wavelengths": torch.tensor([4.45]),
+                "right_wavelengths_1": torch.tensor([3.85]),
+                "right_wavelengths_2": torch.tensor([5.05]),
+                "fwhm": torch.tensor([0.1]),
+                "fwhm_1": torch.tensor([0.1]),
+                "fwhm_2": torch.tensor([0.1]),
+                "fixed_layer_count": torch.tensor([1]),
+                "fixed_layer_ratio": torch.tensor([0.5]),
+                "fully_fixed_mask": torch.tensor([False]),
+                "min_dominant_material_probability": torch.tensor([0.4]),
+                "mean_dominant_material_probability": torch.tensor([0.5]),
+                "dominant_material_probabilities": torch.tensor([[0.6, 0.4]]),
+                "dominant_material_indices": torch.tensor([[0, 1]]),
+                "fixed_layer_mask": torch.tensor([[True, False]]),
+            }
+            summary = {
+                "epoch": 1,
+                "mean_q_min_pair": 10.0,
+                "mean_double_mse": 0.02,
+                "dual_valid_ratio": 1.0,
+                "dominant_material_prob_threshold": 0.95,
+                "fully_fixed_ratio": 0.0,
+                "mean_fixed_layer_count": 1.0,
+                "mean_min_dominant_material_probability": 0.4,
+            }
+            q_evaluator.save_q_evaluation_epoch(q_results, summary, str(save_dir), materials=["Ge", "SiO2"])
+            details_df = pd.read_csv(save_dir / "q_mse_metrics_epoch_1.csv")
+            columns = set(details_df.columns.tolist())
+            self.assertIn("q1", columns)
+            self.assertIn("q2", columns)
+            self.assertIn("q_min_pair", columns)
+            self.assertIn("double_lorentz_mse", columns)
+            self.assertIn("double_lorentz_rmse", columns)
+            self.assertIn("peak_wavelength_1_um", columns)
+            self.assertIn("peak_wavelength_2_um", columns)
+            self.assertIn("peak_absorption_1", columns)
+            self.assertIn("peak_absorption_2", columns)
+            self.assertIn("fwhm_1_um", columns)
+            self.assertIn("fwhm_2_um", columns)
+            self.assertNotIn("q_value", columns)
+            self.assertNotIn("lorentz_mse", columns)
+            self.assertNotIn("lorentz_rmse", columns)
+            self.assertNotIn("peak_wavelength_um", columns)
+            self.assertNotIn("peak_absorption", columns)
+            self.assertNotIn("fwhm_um", columns)
         finally:
             if save_dir.exists():
                 for child in sorted(save_dir.rglob("*"), reverse=True):
