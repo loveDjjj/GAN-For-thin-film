@@ -1,5 +1,27 @@
 # Notes
 
+## 需求（2026-04-16）
+删除与当前双峰训练主链无关的独立辅助脚本，只保留当前双峰训练与推理主链所需代码，并同步清理 README 的相关入口说明。
+
+## 涉及文件
+- `calculate_q_factor.py`
+- `optimize_structure.py`
+- `analyze_gan_samoples.py`
+- `analyze_high_quality_solutions.py`
+- `README.md`
+- `docs/notes.md`
+- `docs/logs/2026-03.md`
+
+## 验证
+```bash
+conda run -n oneday python -m unittest tests.test_double_lorentzian tests.test_dual_metrics tests.test_double_inference -v
+conda run -n oneday python -m py_compile train.py train/trainer.py train/q_evaluator.py train/high_quality_solution_collector.py train/sample_saver.py utils/reproducibility.py infer.py inference/filtering.py inference/qfactor.py inference/inferer.py inference/visualization.py model/Lorentzian/lorentzian_curves.py
+```
+
+## Git
+- branch: `double`
+- commit: `git commit -m "refactor: drop unused auxiliary scripts"`
+
 ## 需求（2026-04-15）
 在 `double` 分支中完成双窄带目标的首轮代码改造：训练目标切换为双峰、训练期核心评估改为双窗口 Q、推理筛样改为双峰目标，并同步更新文档。
 

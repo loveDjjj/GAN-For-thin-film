@@ -29,10 +29,6 @@ inference/
   visualization.py
 train.py
 infer.py
-calculate_q_factor.py
-optimize_structure.py
-analyze_gan_samoples.py
-analyze_high_quality_solutions.py
 requirements.txt
 ```
 
@@ -48,7 +44,6 @@ requirements.txt
 - `model/net.py`：生成器与判别器定义。
 - `model/TMM/`：TMM 光学计算。
 - `data/myindex.py`：材料 `.mat` 文件读取与折射率插值。
-- `analyze_high_quality_solutions.py`：对 `high_quality_solutions.csv` 做结构序列去重，并绘制波长-Q 颜色散点图。
 - `config/training_config.yaml`：训练所需结构、材料、光学、训练和可视化参数。
 - `config/inference_config.yaml`：推理所需模型路径、训练配置路径、筛选参数和输出目录。
 
@@ -79,30 +74,6 @@ python infer.py --target_center_1 3.8 --target_center_2 5.2
 - 当前仓库未发现该 `results/` 目录，因此本地是否可直接运行推理，待确认。
 - 当前推理目标为双窄带，需同时提供 `target_center_1` 和 `target_center_2`。
 
-Q-factor 计算：
-
-```bash
-python calculate_q_factor.py --file generated_samples/<run>/best_sample_1_absorption.xlsx --center 4.26 --range 0.1 --output_dir q_results --plot
-```
-
-结构优化：
-
-```bash
-python optimize_structure.py --file generated_samples/<run>/best_sample_1_structure.txt --center1 4.26 --center2 8.5 --range 0.3 --output_dir optimized_results
-```
-
-批量样本分析：
-
-```bash
-python analyze_gan_samoples.py --model_path <generator_final.pth> --config_path config/training_config.yaml --output_dir analysis_results --max_samples 100000 --batch_size 500 --alpha 200
-```
-
-优质解去重与可视化：
-
-```bash
-python analyze_high_quality_solutions.py --csv_path results/spectral_gan/<run>/high_quality_solutions/summary/high_quality_solutions.csv
-```
-
 ## 配置说明
 
 - `config/training_config.yaml`
@@ -132,11 +103,6 @@ python analyze_high_quality_solutions.py --csv_path results/spectral_gan/<run>/h
 - 推理输出：`generated_samples/best_samples_YYYYMMDD_HHMMSS/`
   - 典型内容：`best_sample_*_absorption.xlsx`、`best_sample_*_structure.txt`、`best_samples_q.txt`、`pareto_front/`
   - `best_samples_q.txt` 与 `pareto_samples_q.txt` 当前输出双窗口 `Q1/Q2/Q_min_pair`
-- 其他脚本输出：
-  - `calculate_q_factor.py` -> `q_results/`
-  - `optimize_structure.py` -> `optimized_results/`
-  - `analyze_gan_samoples.py` -> `analysis_results/`
-  - `analyze_high_quality_solutions.py` -> `<csv_dir>/deduplicated_analysis/`
 
 ## 阅读顺序
 
