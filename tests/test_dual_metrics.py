@@ -175,6 +175,10 @@ class DualMetricTests(unittest.TestCase):
             q_evaluator.save_q_evaluation_history(history, str(save_dir))
             self.assertTrue((save_dir / "q_mse_evaluation_summary.csv").exists())
             self.assertTrue((save_dir / "q_mse_evaluation_curves.png").exists())
+            self.assertTrue((save_dir / "global_max_q_min_pair_curve.csv").exists())
+            self.assertTrue((save_dir / "global_max_q_min_pair_curve.png").exists())
+            self.assertFalse((save_dir / "global_max_q_curve.csv").exists())
+            self.assertFalse((save_dir / "global_max_q_curve.png").exists())
             summary_df = pd.read_csv(save_dir / "q_mse_evaluation_summary.csv")
             self.assertIn("mean_q_min_pair", summary_df.columns)
             self.assertIn("dual_valid_ratio", summary_df.columns)
@@ -183,10 +187,56 @@ class DualMetricTests(unittest.TestCase):
             self.assertIn("global_max_q_min_pair", summary_df.columns)
             self.assertNotIn("global_max_q", summary_df.columns)
 
-            curve_df = pd.read_csv(save_dir / "global_max_q_curve.csv")
+            curve_df = pd.read_csv(save_dir / "global_max_q_min_pair_curve.csv")
             self.assertIn("epoch_max_q_min_pair", curve_df.columns)
             self.assertIn("global_max_q_min_pair", curve_df.columns)
             self.assertNotIn("epoch_max_q", curve_df.columns)
+        finally:
+            if save_dir.exists():
+                for child in sorted(save_dir.rglob("*"), reverse=True):
+                    if child.is_file():
+                        child.unlink()
+                    elif child.is_dir():
+                        child.rmdir()
+                save_dir.rmdir()
+
+    def test_save_global_best_sample_histories_uses_dual_file_stem(self):
+        save_dir = Path(__file__).resolve().parent / ".tmp" / "global_best"
+        save_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            q_results = self._build_minimal_dual_q_results()
+            summary = {
+                "epoch": 1,
+                "alpha": 5.0,
+                "epoch_best_fom": 0.4,
+            }
+
+            wavelengths = torch.linspace(3.0, 6.0, 10)
+            absorption_spectra = torch.linspace(0.1, 1.0, 10).unsqueeze(0)
+            thicknesses = torch.tensor([[0.1, 0.2]])
+            material_probabilities = torch.tensor([[[0.9, 0.1], [0.2, 0.8]]])
+
+            class Params:
+                materials = ["Ge", "SiO2"]
+                q_eval_fom_lorentz_width = 0.01
+                lorentz_width = 0.02
+
+            q_evaluator.save_global_best_sample_histories(
+                summary=summary,
+                q_results=q_results,
+                wavelengths=wavelengths,
+                absorption_spectra=absorption_spectra,
+                thicknesses=thicknesses,
+                material_probabilities=material_probabilities,
+                params=Params(),
+                save_dir=str(save_dir),
+            )
+
+            tracking_dir = save_dir / "global_best_samples"
+            self.assertTrue((tracking_dir / "global_max_q_min_pair_epoch_0001_structure.txt").exists())
+            self.assertTrue((tracking_dir / "global_max_q_min_pair_epoch_0001_spectrum.csv").exists())
+            self.assertTrue((tracking_dir / "global_max_q_min_pair_epoch_0001_spectrum.png").exists())
+            self.assertFalse((tracking_dir / "global_max_q_epoch_0001_structure.txt").exists())
         finally:
             if save_dir.exists():
                 for child in sorted(save_dir.rglob("*"), reverse=True):

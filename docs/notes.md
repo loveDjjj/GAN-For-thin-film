@@ -1,6 +1,25 @@
 # Notes
 
 ## 需求（2026-04-16）
+把文件名层也彻底双峰化，将 `global_max_q_curve.*` 和 `global_max_q_epoch_*` 统一改成 `global_max_q_min_pair_*`。
+
+## 涉及文件
+- `train/q_evaluator.py`
+- `tests/test_dual_metrics.py`
+- `README.md`
+- `docs/notes.md`
+- `docs/logs/2026-03.md`
+
+## 验证
+```bash
+conda run -n oneday python -m unittest tests.test_dual_metrics -v
+```
+
+## Git
+- branch: `double`
+- commit: `git commit -m "refactor: align dual peak artifact filenames"`
+
+## 需求（2026-04-16）
 把训练期 summary 层里剩余的历史兼容列名彻底双峰化，移除 `mean_q/max_q/mean_mse/mean_rmse` 等旧键，统一改为 `*_q_min_pair` 与 `*_double_*` 语义。
 
 ## 涉及文件

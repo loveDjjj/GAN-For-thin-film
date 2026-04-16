@@ -93,11 +93,11 @@ python infer.py --target_center_1 3.8 --target_center_2 5.2
 - 训练输出：`results/spectral_gan/run_YYYYMMDD_HHMMSS/`
   - 典型内容：`models/`、`samples/`、`samples/data/`、`training_metrics.png`
   - 分布图：`thickness_distribution_evolution_combined.png`、`merged_layers_distribution_evolution_combined.png`
-  - Q/MSE 评估：`q_evaluation/`、`q_mse_evaluation_summary.csv`、`q_mse_evaluation_curves.png`、`q_mse_metrics_epoch_*.csv`、`global_max_q_curve.png`、`global_max_q_curve.csv`、`global_best_fom_curve.png`、`global_best_fom_curve.csv`
+  - Q/MSE 评估：`q_evaluation/`、`q_mse_evaluation_summary.csv`、`q_mse_evaluation_curves.png`、`q_mse_metrics_epoch_*.csv`、`global_max_q_min_pair_curve.png`、`global_max_q_min_pair_curve.csv`、`global_best_fom_curve.png`、`global_best_fom_curve.csv`
   - `q_mse_metrics_epoch_*.csv` 当前额外包含 `q1`、`q2`、`q_min_pair`、`double_lorentz_mse`、`double_lorentz_rmse`、`peak_wavelength_1_um`、`peak_wavelength_2_um`、`peak_absorption_1`、`peak_absorption_2`、`fwhm_1_um`、`fwhm_2_um`、`q_score`、`rmse_score`、`fom` 等列
   - `q_mse_evaluation_summary.csv` 当前额外包含 `mean_q1`、`mean_q2`、`mean_q_min_pair`、`max_q_min_pair`、`std_q_min_pair`、`mean_double_mse`、`mean_double_rmse`、`dual_valid_ratio`、`epoch_best_fom`、`global_max_q_min_pair`、`global_best_fom`
-  - `global_max_q_curve.csv` 当前导出列为 `epoch_max_q_min_pair` 与 `global_max_q_min_pair`，文件名保持不变
-  - 全局最优样本追踪：`q_evaluation/global_best_samples/`，当出现新的 `global_max_q` 或 `global_best_fom` 时，会新建按 epoch 命名的文件，例如 `global_max_q_epoch_0020_structure.txt`、`global_max_q_epoch_0020_spectrum.csv`、`global_max_q_epoch_0020_spectrum.png`；`global_best_fom` 同理。四个全局曲线文件会继续保留。
+  - `global_max_q_min_pair_curve.csv` 当前导出列为 `epoch_max_q_min_pair` 与 `global_max_q_min_pair`
+  - 全局最优样本追踪：`q_evaluation/global_best_samples/`，当出现新的 `global_max_q_min_pair` 或 `global_best_fom` 时，会新建按 epoch 命名的文件，例如 `global_max_q_min_pair_epoch_0020_structure.txt`、`global_max_q_min_pair_epoch_0020_spectrum.csv`、`global_max_q_min_pair_epoch_0020_spectrum.png`；`global_best_fom` 同理。四个全局曲线文件会继续保留。
   - 结构固定度统计：`q_evaluation/material_certainty_epoch_*.png`、`q_evaluation/material_certainty_curves.png`、`q_evaluation/material_certainty_layers_epoch_*.csv`、`q_evaluation/material_certainty_layer_history.csv`
   - 优质解收集：`high_quality_solutions/`、`summary/high_quality_solutions.csv`、`summary/high_quality_solution_distributions.png`、`epoch_*/epoch_*_sample_*/`
   - `high_quality_solutions.csv` 当前主字段为 `q1`、`q2`、`q_min_pair`、`double_lorentz_mse`、`peak_wavelength_1_um`、`peak_wavelength_2_um`、`peak_absorption_1`、`peak_absorption_2`、`fwhm_1_um`、`fwhm_2_um`

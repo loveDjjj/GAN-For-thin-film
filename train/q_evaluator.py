@@ -566,7 +566,7 @@ def _get_previous_global_best(save_dir, tracked_metric_name):
         return float(history_df[tracked_metric_name].max())
 
     fallback_columns = {
-        "global_max_q": "max_q_min_pair",
+        "global_max_q_min_pair": "max_q_min_pair",
         "global_best_fom": "epoch_best_fom",
     }
     fallback_column = fallback_columns.get(tracked_metric_name)
@@ -725,7 +725,7 @@ def save_global_best_sample_histories(summary, q_results, wavelengths, absorptio
     os.makedirs(tracking_dir, exist_ok=True)
 
     metric_specs = (
-        ("global_max_q", "q_min_pair_values"),
+        ("global_max_q_min_pair", "q_min_pair_values"),
         ("global_best_fom", "fom_values"),
     )
     for tracked_metric_name, tensor_key in metric_specs:
@@ -1043,9 +1043,9 @@ def save_q_evaluation_history(history, save_dir):
             "max_q_min_pair": "epoch_max_q_min_pair",
         }
     )
-    global_max_q_curve_path = os.path.join(save_dir, "global_max_q_curve.csv")
+    global_max_q_curve_path = os.path.join(save_dir, "global_max_q_min_pair_curve.csv")
     global_max_q_curve_df.to_csv(global_max_q_curve_path, index=False)
-    global_max_q_plot_path = os.path.join(save_dir, "global_max_q_curve.png")
+    global_max_q_plot_path = os.path.join(save_dir, "global_max_q_min_pair_curve.png")
     _save_single_metric_curve(
         curve_df=global_max_q_curve_df,
         output_path=global_max_q_plot_path,
