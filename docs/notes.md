@@ -223,3 +223,55 @@ git diff -- train.py train/q_evaluator.py train/high_quality_solution_collector.
 ## Git
 - branch: `main`
 - commit: `git commit -m "feat: add dedicated fom rmse width to q evaluation"`
+
+## 需求（2026-05-04）：补充文档 command 手册，给出双峰训练主链常用命令
+## 涉及文件
+- `README.md`
+- `docs/notes.md`
+- `docs/logs/2026-03.md`
+
+## 修改
+- 在 `README.md` 新增 `Command Manual (double branch)` 章节。
+- 补充并统一了双峰主链常用命令：
+  - 环境与依赖安装
+  - 训练命令
+  - 双峰推理命令（CLI 覆盖）
+  - 仅 YAML 推理命令
+  - 单元测试命令
+  - 关键文件语法检查命令
+  - 训练/推理 smoke 命令
+  - smoke 产物清理命令
+
+## 验证
+- 文档变更已写入，未执行训练/推理（本次仅文档更新）。
+
+## 需求（2026-05-04）：将命令手册改为独立文档 command.md（不放在 README 末尾）
+## 涉及文件
+- `command.md`
+- `README.md`
+- `docs/notes.md`
+- `docs/logs/2026-03.md`
+
+## 修改
+- 新建 `command.md`，集中维护双峰训练主链常用命令。
+- 从 `README.md` 移除上一轮追加的 `Command Manual (double branch)` 章节，避免主说明文档过长。
+- 命令内容保持与上一轮一致：环境、依赖、训练、推理、测试、语法检查、smoke、清理。
+
+## 验证
+- 文档变更已写入，未执行训练/推理（本次仅文档调整）。
+
+## 需求（2026-05-04）：命令手册独立为 command.md，并将 README/command 文本统一改为中文，修复 README 乱码
+## 涉及文件
+- `README.md`
+- `command.md`
+- `docs/notes.md`
+- `docs/logs/2026-03.md`
+
+## 修改
+- 新建并维护独立中文命令手册：`command.md`。
+- 从 README 中移除命令手册内容，README 仅保留项目说明、结构、关键文件、输出语义和阅读顺序。
+- 重写 `README.md` 为 UTF-8 中文内容，修复原有乱码。
+- `command.md` 内容全部改为中文，保留双峰训练主链常用命令。
+
+## 验证
+- 文档写入检查通过；本次仅文档修改，未执行训练/推理。
