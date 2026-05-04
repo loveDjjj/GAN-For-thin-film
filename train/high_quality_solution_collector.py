@@ -186,7 +186,6 @@ def collect_high_quality_solutions_batch(
 
     material_probabilities = _ensure_material_probabilities(material_probabilities)
     dominant_probs = material_probabilities.max(dim=2).values
-    dominant_indices = material_probabilities.argmax(dim=2)
     min_dominant_probs = dominant_probs.min(dim=1).values
 
     high_quality_mask = (
@@ -214,19 +213,14 @@ def collect_high_quality_solutions_batch(
     selected_absorption = absorption_spectra[selected_indices].detach().cpu()
     selected_thicknesses = thicknesses[selected_indices].detach().cpu()
     selected_material_probs = material_probabilities[selected_indices].detach().cpu()
-    selected_q_values = q_mse_results["q_values"][selected_indices].detach().cpu()
     selected_q1_values = q_mse_results["q1_values"][selected_indices].detach().cpu()
     selected_q2_values = q_mse_results["q2_values"][selected_indices].detach().cpu()
     selected_q_min_pair_values = q_mse_results["q_min_pair_values"][selected_indices].detach().cpu()
-    selected_mse_values = q_mse_results["mse_values"][selected_indices].detach().cpu()
     selected_double_mse_values = q_mse_results["double_lorentz_mse_values"][selected_indices].detach().cpu()
-    selected_peak_absorptions = q_mse_results["peak_absorptions"][selected_indices].detach().cpu()
     selected_peak_absorptions_1 = q_mse_results["peak_absorptions_1"][selected_indices].detach().cpu()
     selected_peak_absorptions_2 = q_mse_results["peak_absorptions_2"][selected_indices].detach().cpu()
-    selected_fwhm = q_mse_results["fwhm"][selected_indices].detach().cpu()
     selected_fwhm_1 = q_mse_results["fwhm_1"][selected_indices].detach().cpu()
     selected_fwhm_2 = q_mse_results["fwhm_2"][selected_indices].detach().cpu()
-    selected_peak_positions = q_mse_results["peak_wavelengths"][selected_indices].detach().cpu()
     selected_peak_positions_1 = selected_peak_wavelengths_1.detach().cpu()
     selected_peak_positions_2 = selected_peak_wavelengths_2.detach().cpu()
     selected_min_dominant_probs = min_dominant_probs[selected_indices].detach().cpu()
@@ -253,7 +247,7 @@ def collect_high_quality_solutions_batch(
             {
                 "wavelength_um": wavelengths_cpu.numpy(),
                 "absorption": sample_absorption.numpy(),
-                "peak_aligned_lorentzian": sample_target.numpy(),
+                "peak_aligned_double_lorentzian": sample_target.numpy(),
             }
         )
         spectrum_csv_path = os.path.join(sample_dir, "spectrum.csv")
@@ -266,15 +260,16 @@ def collect_high_quality_solutions_batch(
             sample_target.numpy(),
             linewidth=1.8,
             linestyle="--",
-            label="Peak-aligned Lorentzian",
+            label="Peak-aligned Double Lorentzian",
         )
-        ax.axvline(float(selected_peak_positions[local_index].item()), color="tab:red", linestyle=":", linewidth=1.2)
+        ax.axvline(float(selected_peak_positions_1[local_index].item()), color="tab:red", linestyle=":", linewidth=1.2)
+        ax.axvline(float(selected_peak_positions_2[local_index].item()), color="tab:purple", linestyle=":", linewidth=1.2)
         ax.set_xlabel("Wavelength (um)")
         ax.set_ylabel("Absorption")
         ax.set_ylim(-0.02, max(1.05, float(sample_absorption.max().item()) * 1.05))
         ax.set_title(
-            f"High-Quality Solution | Q={selected_q_values[local_index].item():.2f}, "
-            f"MSE={selected_mse_values[local_index].item():.6f}"
+            f"High-Quality Solution | Qmin={selected_q_min_pair_values[local_index].item():.2f}, "
+            f"DoubleMSE={selected_double_mse_values[local_index].item():.6f}"
         )
         ax.grid(True, alpha=0.3)
         ax.legend()

@@ -16,7 +16,7 @@ materials:
 
 optics:
   wavelength_range: [3, 6]
-  samples_total: 1000
+  samples_total: 2000
   theta: 0.0
   n_top: 1.0
   n_bot: 1.0
@@ -37,7 +37,7 @@ generator:
 
 training:
   epochs: 100
-  batch_size: 512
+  batch_size: 2048
   save_interval: 1
   noise_level: 0.005
   lambda_gp: 3.0
@@ -61,7 +61,7 @@ visualization:
 
 q_evaluation:
   interval: 1
-  num_samples: 1024
+  num_samples: 4096
   dominant_material_prob_threshold: 0.95
   # FOM 评分:
   # FOM 的 RMSE 单独基于 fom_lorentz_width 生成峰值对齐 Lorentzian 后计算，
