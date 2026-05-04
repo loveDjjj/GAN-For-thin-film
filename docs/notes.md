@@ -298,3 +298,26 @@ git diff -- train.py train/q_evaluator.py train/high_quality_solution_collector.
 conda run -n oneday python -m py_compile train/high_quality_solution_collector.py tests/test_dual_metrics.py
 conda run -n oneday python -m unittest tests.test_dual_metrics.DualMetricTests.test_high_quality_registry_uses_dual_field_names tests.test_dual_metrics.DualMetricTests.test_high_quality_summary_dedup_by_10nm_key_with_q_then_mse_priority -v
 ```
+
+## 需求（2026-05-04）：优质解统计补充双峰位置分布，不再只统计峰1
+## 涉及文件
+- `train/high_quality_solution_collector.py`
+- `tests/test_dual_metrics.py`
+- `docs/notes.md`
+- `docs/logs/2026-03.md`
+
+## 修改
+- `high_quality_solution_summary.json` 新增双峰位置波段统计字段：
+  - `peak_wavelength_1_um_min`
+  - `peak_wavelength_1_um_max`
+  - `peak_wavelength_2_um_min`
+  - `peak_wavelength_2_um_max`
+- `high_quality_solution_distributions.png` 的 2x3 统计图中，新增峰2位置分布展示：
+  - 将左下子图改为 `Peak 2 Wavelength Distribution`。
+- 新增测试断言，验证 summary JSON 包含上述双峰波段字段。
+
+## 验证
+```bash
+conda run -n oneday python -m py_compile train/high_quality_solution_collector.py tests/test_dual_metrics.py
+conda run -n oneday python -m unittest tests.test_dual_metrics.DualMetricTests.test_high_quality_summary_dedup_by_10nm_key_with_q_then_mse_priority -v
+```

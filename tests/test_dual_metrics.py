@@ -1,5 +1,6 @@
 import unittest
 from pathlib import Path
+import json
 
 import pandas as pd
 import torch
@@ -365,6 +366,14 @@ class DualMetricTests(unittest.TestCase):
             self.assertEqual(winner["sample_id"], "c")
             self.assertEqual(winner["merged_structure_10nm_key"], "Ge:12|Si:8")
             self.assertEqual(winner["merged_structure_1nm_key"], "Ge:122|Si:78")
+
+            summary_path = save_dir / "summary" / "high_quality_solution_summary.json"
+            with summary_path.open("r", encoding="utf-8") as handle:
+                summary = json.load(handle)
+            self.assertIn("peak_wavelength_1_um_min", summary)
+            self.assertIn("peak_wavelength_1_um_max", summary)
+            self.assertIn("peak_wavelength_2_um_min", summary)
+            self.assertIn("peak_wavelength_2_um_max", summary)
         finally:
             if save_dir.exists():
                 for child in sorted(save_dir.rglob("*"), reverse=True):

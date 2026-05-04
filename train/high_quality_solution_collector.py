@@ -392,6 +392,10 @@ def update_high_quality_collection_summary(save_dir, new_records):
         "total_high_quality_solutions": int(len(combined_df)),
         "best_q_min_pair": float(combined_df["q_min_pair"].max()) if not combined_df.empty else 0.0,
         "lowest_double_lorentz_mse": float(combined_df["double_lorentz_mse"].min()) if not combined_df.empty else 0.0,
+        "peak_wavelength_1_um_min": float(combined_df["peak_wavelength_1_um"].min()) if not combined_df.empty else 0.0,
+        "peak_wavelength_1_um_max": float(combined_df["peak_wavelength_1_um"].max()) if not combined_df.empty else 0.0,
+        "peak_wavelength_2_um_min": float(combined_df["peak_wavelength_2_um"].min()) if not combined_df.empty else 0.0,
+        "peak_wavelength_2_um_max": float(combined_df["peak_wavelength_2_um"].max()) if not combined_df.empty else 0.0,
         "highest_peak_absorption_1": float(combined_df["peak_absorption_1"].max()) if not combined_df.empty else 0.0,
         "highest_peak_absorption_2": float(combined_df["peak_absorption_2"].max()) if not combined_df.empty else 0.0,
         "largest_total_thickness_um": float(combined_df["total_thickness_um"].max()) if not combined_df.empty else 0.0,
@@ -427,9 +431,9 @@ def update_high_quality_collection_summary(save_dir, new_records):
         axes[0, 2].set_ylabel("Count")
         axes[0, 2].grid(True, alpha=0.3)
 
-        axes[1, 0].hist(combined_df["peak_absorption_1"], bins=20, color="crimson", alpha=0.85, edgecolor="black")
-        axes[1, 0].set_title("Peak 1 Absorption Distribution")
-        axes[1, 0].set_xlabel("Peak Absorption")
+        axes[1, 0].hist(combined_df["peak_wavelength_2_um"], bins=20, color="crimson", alpha=0.85, edgecolor="black")
+        axes[1, 0].set_title("Peak 2 Wavelength Distribution")
+        axes[1, 0].set_xlabel("Wavelength (um)")
         axes[1, 0].set_ylabel("Count")
         axes[1, 0].grid(True, alpha=0.3)
 
