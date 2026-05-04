@@ -5,6 +5,10 @@
 conda activate oneday
 ```
 
+```bash
+export CUBLAS_WORKSPACE_CONFIG=:4096:8
+```
+
 ## 安装依赖
 ```bash
 pip install -r requirements.txt

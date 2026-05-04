@@ -6,7 +6,10 @@ import torch
 
 from model.Lorentzian.lorentzian_curves import generate_double_lorentzian_curves
 from train import q_evaluator
-from train.high_quality_solution_collector import initialize_high_quality_collection
+from train.high_quality_solution_collector import (
+    initialize_high_quality_collection,
+    update_high_quality_collection_summary,
+)
 
 
 class DualMetricTests(unittest.TestCase):
@@ -263,11 +266,105 @@ class DualMetricTests(unittest.TestCase):
             self.assertIn("peak_absorption_2", columns)
             self.assertIn("fwhm_1_um", columns)
             self.assertIn("fwhm_2_um", columns)
+            self.assertIn("merged_structure_1nm_key", columns)
+            self.assertIn("merged_structure_10nm_key", columns)
             self.assertNotIn("q_value", columns)
             self.assertNotIn("lorentz_mse", columns)
             self.assertNotIn("peak_wavelength_um", columns)
             self.assertNotIn("peak_absorption", columns)
             self.assertNotIn("fwhm_um", columns)
+        finally:
+            if save_dir.exists():
+                for child in sorted(save_dir.rglob("*"), reverse=True):
+                    if child.is_file():
+                        child.unlink()
+                    elif child.is_dir():
+                        child.rmdir()
+                save_dir.rmdir()
+
+    def test_high_quality_summary_dedup_by_10nm_key_with_q_then_mse_priority(self):
+        save_dir = Path(__file__).resolve().parent / ".tmp" / "high_quality_dedup"
+        save_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            initialize_high_quality_collection(str(save_dir), {"enabled": True})
+            records = [
+                {
+                    "sample_id": "a",
+                    "epoch": 1,
+                    "alpha": 5.0,
+                    "evaluation_sample_index": 1,
+                    "q1": 120.0,
+                    "q2": 100.0,
+                    "q_min_pair": 100.0,
+                    "double_lorentz_mse": 0.0040,
+                    "peak_wavelength_1_um": 3.8,
+                    "peak_wavelength_2_um": 5.2,
+                    "peak_absorption_1": 0.95,
+                    "peak_absorption_2": 0.94,
+                    "fwhm_1_um": 0.01,
+                    "fwhm_2_um": 0.01,
+                    "total_thickness_um": 0.35,
+                    "min_dominant_material_probability": 0.98,
+                    "merged_layer_count": 3,
+                    "merged_structure_1nm_key": "Ge:120|Si:80",
+                    "merged_structure_10nm_key": "Ge:12|Si:8",
+                    "sample_dir": "x/a",
+                },
+                {
+                    "sample_id": "b",
+                    "epoch": 1,
+                    "alpha": 5.0,
+                    "evaluation_sample_index": 2,
+                    "q1": 130.0,
+                    "q2": 110.0,
+                    "q_min_pair": 110.0,
+                    "double_lorentz_mse": 0.0060,
+                    "peak_wavelength_1_um": 3.8,
+                    "peak_wavelength_2_um": 5.2,
+                    "peak_absorption_1": 0.96,
+                    "peak_absorption_2": 0.95,
+                    "fwhm_1_um": 0.01,
+                    "fwhm_2_um": 0.01,
+                    "total_thickness_um": 0.36,
+                    "min_dominant_material_probability": 0.98,
+                    "merged_layer_count": 3,
+                    "merged_structure_1nm_key": "Ge:121|Si:79",
+                    "merged_structure_10nm_key": "Ge:12|Si:8",
+                    "sample_dir": "x/b",
+                },
+                {
+                    "sample_id": "c",
+                    "epoch": 1,
+                    "alpha": 5.0,
+                    "evaluation_sample_index": 3,
+                    "q1": 130.0,
+                    "q2": 110.0,
+                    "q_min_pair": 110.0,
+                    "double_lorentz_mse": 0.0030,
+                    "peak_wavelength_1_um": 3.8,
+                    "peak_wavelength_2_um": 5.2,
+                    "peak_absorption_1": 0.96,
+                    "peak_absorption_2": 0.95,
+                    "fwhm_1_um": 0.01,
+                    "fwhm_2_um": 0.01,
+                    "total_thickness_um": 0.36,
+                    "min_dominant_material_probability": 0.98,
+                    "merged_layer_count": 3,
+                    "merged_structure_1nm_key": "Ge:122|Si:78",
+                    "merged_structure_10nm_key": "Ge:12|Si:8",
+                    "sample_dir": "x/c",
+                },
+            ]
+
+            result = update_high_quality_collection_summary(str(save_dir), records)
+            self.assertEqual(result["total_high_quality_count"], 1)
+
+            registry_df = pd.read_csv(save_dir / "summary" / "high_quality_solutions.csv")
+            self.assertEqual(len(registry_df), 1)
+            winner = registry_df.iloc[0]
+            self.assertEqual(winner["sample_id"], "c")
+            self.assertEqual(winner["merged_structure_10nm_key"], "Ge:12|Si:8")
+            self.assertEqual(winner["merged_structure_1nm_key"], "Ge:122|Si:78")
         finally:
             if save_dir.exists():
                 for child in sorted(save_dir.rglob("*"), reverse=True):

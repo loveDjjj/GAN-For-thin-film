@@ -275,3 +275,26 @@ git diff -- train.py train/q_evaluator.py train/high_quality_solution_collector.
 
 ## 验证
 - 文档写入检查通过；本次仅文档修改，未执行训练/推理。
+
+## 需求（2026-05-04）：高质量解按结构去重（10nm 粒度），同结构按 Q 优先、MSE 次优保留最佳；保留 1nm 厚度表示
+## 涉及文件
+- `train/high_quality_solution_collector.py`
+- `tests/test_dual_metrics.py`
+- `docs/notes.md`
+- `docs/logs/2026-03.md`
+
+## 修改
+- 在 `train/high_quality_solution_collector.py` 新增合并结构键：
+  - `merged_structure_1nm_key`（厚度按 1nm 四舍五入）
+  - `merged_structure_10nm_key`（厚度按 10nm 四舍五入）
+- `high_quality_solutions.csv` 新增上述两列。
+- 汇总阶段按 `merged_structure_10nm_key` 去重，只保留最优样本：
+  - 先按 `q_min_pair` 降序
+  - 再按 `double_lorentz_mse` 升序
+- 采样批处理中尽量保留 GPU 张量，仅在写文件前将单样本必要数据转到 CPU，减少不必要的数据搬运。
+
+## 验证
+```bash
+conda run -n oneday python -m py_compile train/high_quality_solution_collector.py tests/test_dual_metrics.py
+conda run -n oneday python -m unittest tests.test_dual_metrics.DualMetricTests.test_high_quality_registry_uses_dual_field_names tests.test_dual_metrics.DualMetricTests.test_high_quality_summary_dedup_by_10nm_key_with_q_then_mse_priority -v
+```
