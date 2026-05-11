@@ -321,3 +321,26 @@ conda run -n oneday python -m unittest tests.test_dual_metrics.DualMetricTests.t
 conda run -n oneday python -m py_compile train/high_quality_solution_collector.py tests/test_dual_metrics.py
 conda run -n oneday python -m unittest tests.test_dual_metrics.DualMetricTests.test_high_quality_summary_dedup_by_10nm_key_with_q_then_mse_priority -v
 ```
+
+## 需求（2026-05-11）：新增高质量解双峰位置簇分析脚本
+## 涉及文件
+- `analyze_high_quality_peak_clusters.py`
+- `tests/test_high_quality_peak_clusters.py`
+- `command.md`
+- `docs/notes.md`
+- `docs/logs/2026-03.md`
+
+## 修改
+- 新增独立脚本 `analyze_high_quality_peak_clusters.py`，用于分析 `high_quality_solutions` 中每个 epoch 的双峰位置覆盖情况。
+- 峰位聚类规则：先将两个峰位置四舍五入到 `0.1um`，再按 `0.5um` 步长生成双峰簇 key。
+- 每个 epoch 的同一双峰簇只保留一个代表样本，选择规则为 `q_min_pair` 降序优先、`double_lorentz_mse` 升序次优。
+- 输出 CSV：`high_quality_solutions_with_peak_clusters.csv`、`epoch_peak_cluster_summary.csv`、`epoch_peak_pair_cluster_summary.csv`、`representative_solutions.csv`。
+- 输出图：每个 epoch 的双峰簇数量、双峰簇散点、epoch-双峰簇热力图、代表样本 Q/MSE 散点。
+- 可选 `--copy_representatives` 复制每个双峰簇代表样本目录。
+- `command.md` 增加该脚本的运行命令。
+
+## 验证
+```bash
+conda run -n oneday python -m unittest tests.test_high_quality_peak_clusters -v
+conda run -n oneday python -m py_compile analyze_high_quality_peak_clusters.py tests/test_high_quality_peak_clusters.py
+```

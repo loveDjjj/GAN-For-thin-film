@@ -57,3 +57,15 @@ Get-ChildItem -Recurse -Directory -Filter __pycache__ | Remove-Item -Recurse -Fo
 git restore --source=HEAD data/__pycache__ model/Lorentzian/__pycache__ model/TMM/__pycache__ model/__pycache__ train/__pycache__ utils/__pycache__
 ```
 
+## 分析高质量解的双峰位置簇
+默认规则：峰位先四舍五入到 `0.1um`，再按 `0.5um` 作为不同双峰簇的步长。同一 epoch 同一双峰簇只保留一个代表样本，优先 `q_min_pair` 高，其次 `double_lorentz_mse` 低。
+
+```bash
+python analyze_high_quality_peak_clusters.py --high_quality_dir results/spectral_gan/run_20260504_113937/high_quality_solutions --output_dir results/spectral_gan/run_20260504_113937/high_quality_peak_cluster_analysis
+```
+
+如果需要额外复制每个双峰簇的代表样本目录：
+
+```bash
+python analyze_high_quality_peak_clusters.py --high_quality_dir results/spectral_gan/run_20260504_113937/high_quality_solutions --output_dir results/spectral_gan/run_20260504_113937/high_quality_peak_cluster_analysis --copy_representatives
+```
