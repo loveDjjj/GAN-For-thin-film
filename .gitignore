@@ -29,3 +29,6 @@ config.yaml
 # F. 忽略全部，但保留某个文件
 data/*
 !data/README.md
+material_nk_comparison/
+compare_material_nk_sources.py
+.refractiveindex_db/
