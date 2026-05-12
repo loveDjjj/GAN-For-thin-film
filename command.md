@@ -58,7 +58,7 @@ git restore --source=HEAD data/__pycache__ model/Lorentzian/__pycache__ model/TM
 ```
 
 ## 分析高质量解的双峰位置簇
-默认规则：峰位先四舍五入到 `0.1um`，再按 `0.5um` 作为不同双峰簇的步长。同一 epoch 同一双峰簇只保留一个代表样本，优先 `q_min_pair` 高，其次 `double_lorentz_mse` 低。
+默认规则：峰位先四舍五入到 `0.1um`，再按 `0.5um` 作为不同双峰簇的步长。同一 epoch 同一双峰簇只保留一个代表样本，优先 `q_min_pair` 高，其次 `double_lorentz_mse` 低。脚本还会把所有 epoch 合并，统计每个全局双峰簇的最优结构；全局最优同样按 `q_min_pair` 优先、`double_lorentz_mse` 次优选择。
 
 ```bash
 python analyze_high_quality_peak_clusters.py --high_quality_dir results/spectral_gan/run_20260504_113937/high_quality_solutions --output_dir results/spectral_gan/run_20260504_113937/high_quality_peak_cluster_analysis
@@ -69,3 +69,13 @@ python analyze_high_quality_peak_clusters.py --high_quality_dir results/spectral
 ```bash
 python analyze_high_quality_peak_clusters.py --high_quality_dir results/spectral_gan/run_20260504_113937/high_quality_solutions --output_dir results/spectral_gan/run_20260504_113937/high_quality_peak_cluster_analysis --copy_representatives
 ```
+
+主要输出：
+
+- `epoch_peak_pair_cluster_summary.csv`：每个 epoch 内的双峰簇统计。
+- `representative_solutions.csv`：每个 epoch、每个双峰簇的代表解。
+- `global_peak_pair_cluster_summary.csv`：跨所有 epoch 的全局双峰簇统计。
+- `global_representative_solutions.csv`：跨所有 epoch、每个双峰簇只保留一个全局最优解。
+- `global_peak_pair_cluster_scatter.png`：全局双峰簇覆盖图。
+- `global_representative_q_mse_scatter.png`：全局代表解 Q/MSE 分布图。
+- `global_representative_solutions/`：使用 `--copy_representatives` 时额外复制的全局代表解目录。

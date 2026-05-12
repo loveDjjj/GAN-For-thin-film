@@ -344,3 +344,27 @@ conda run -n oneday python -m unittest tests.test_dual_metrics.DualMetricTests.t
 conda run -n oneday python -m unittest tests.test_high_quality_peak_clusters -v
 conda run -n oneday python -m py_compile analyze_high_quality_peak_clusters.py tests/test_high_quality_peak_clusters.py
 ```
+
+## 需求（2026-05-12）：高质量解双峰位置簇分析增加全局最优解统计
+## 涉及文件
+- `analyze_high_quality_peak_clusters.py`
+- `tests/test_high_quality_peak_clusters.py`
+- `command.md`
+- `README.md`
+- `docs/notes.md`
+- `docs/logs/2026-03.md`
+
+## 修改
+- 在 `analyze_high_quality_peak_clusters.py` 新增跨所有 epoch 的全局双峰簇统计。
+- 同一个全局双峰簇内只保留一个最优结构，排序规则为 `q_min_pair` 降序优先、`double_lorentz_mse` 升序次优。
+- 新增输出 `global_peak_pair_cluster_summary.csv` 与 `global_representative_solutions.csv`。
+- 新增全局可视化图 `global_peak_pair_cluster_scatter.png` 与 `global_representative_q_mse_scatter.png`。
+- 使用 `--copy_representatives` 时，同时复制全局代表解到 `global_representative_solutions/`。
+- 将 CLI 默认 `--cluster_width` 修正为 `0.5`，与当前双峰簇定义保持一致。
+- `command.md` 与 `README.md` 补充全局输出说明。
+
+## 验证
+```bash
+conda run -n oneday python -m unittest tests.test_high_quality_peak_clusters -v
+conda run -n oneday python -m py_compile analyze_high_quality_peak_clusters.py tests/test_high_quality_peak_clusters.py
+```

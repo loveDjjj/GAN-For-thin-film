@@ -102,6 +102,69 @@ def build_peak_cluster_tables(clustered_df):
     return epoch_summary, cluster_summary, representatives
 
 
+def build_global_peak_cluster_tables(clustered_df):
+    """Build all-epoch dual-peak cluster summaries and best representatives."""
+    sort_columns = ["peak_pair_cluster_key", "q_min_pair", "double_lorentz_mse", "epoch", "sample_id"]
+    sorted_df = clustered_df.sort_values(sort_columns, ascending=[True, False, True, True, True])
+    global_representatives = sorted_df.drop_duplicates(subset=["peak_pair_cluster_key"], keep="first").copy()
+
+    global_summary = (
+        clustered_df.groupby(["peak_pair_cluster_key", "peak1_cluster_um", "peak2_cluster_um"])
+        .agg(
+            sample_count=("sample_id", "count"),
+            epoch_count=("epoch", "nunique"),
+            first_epoch=("epoch", "min"),
+            last_epoch=("epoch", "max"),
+            best_q_min_pair=("q_min_pair", "max"),
+            best_double_lorentz_mse=("double_lorentz_mse", "min"),
+            peak1_min_um=("peak_wavelength_1_um", "min"),
+            peak1_max_um=("peak_wavelength_1_um", "max"),
+            peak2_min_um=("peak_wavelength_2_um", "min"),
+            peak2_max_um=("peak_wavelength_2_um", "max"),
+        )
+        .reset_index()
+    )
+
+    representative_columns = [
+        "epoch",
+        "peak_pair_cluster_key",
+        "peak1_cluster_um",
+        "peak2_cluster_um",
+        "sample_id",
+        "q_min_pair",
+        "double_lorentz_mse",
+        "peak_wavelength_1_um",
+        "peak_wavelength_2_um",
+        "sample_dir",
+    ]
+    representative_columns = [column for column in representative_columns if column in global_representatives.columns]
+    global_representatives = global_representatives[representative_columns].reset_index(drop=True)
+
+    best_columns = [
+        "peak_pair_cluster_key",
+        "epoch",
+        "sample_id",
+        "q_min_pair",
+        "double_lorentz_mse",
+        "sample_dir",
+    ]
+    best_columns = [column for column in best_columns if column in global_representatives.columns]
+    global_summary = global_summary.merge(
+        global_representatives[best_columns].rename(
+            columns={
+                "epoch": "best_epoch",
+                "sample_id": "best_sample_id",
+                "q_min_pair": "best_representative_q_min_pair",
+                "double_lorentz_mse": "best_representative_double_lorentz_mse",
+                "sample_dir": "best_sample_dir",
+            }
+        ),
+        on="peak_pair_cluster_key",
+        how="left",
+    )
+    return global_summary, global_representatives
+
+
 def _load_from_structure_json(high_quality_dir):
     rows = []
     for structure_path in sorted(high_quality_dir.glob("epoch_*/epoch_*_sample_*/structure.json")):
@@ -228,11 +291,56 @@ def _plot_representative_quality(representatives, output_dir):
     plt.close(fig)
 
 
-def save_plots(epoch_summary, cluster_summary, representatives, output_dir):
+def _plot_global_peak_pair_scatter(global_summary, output_dir):
+    fig, ax = plt.subplots(figsize=(7, 6))
+    scatter = ax.scatter(
+        global_summary["peak1_cluster_um"],
+        global_summary["peak2_cluster_um"],
+        s=global_summary["sample_count"].clip(lower=1) * 20,
+        c=global_summary["best_representative_q_min_pair"],
+        cmap="magma",
+        alpha=0.8,
+        edgecolor="black",
+        linewidth=0.4,
+    )
+    ax.set_xlabel("Peak 1 Cluster (um)")
+    ax.set_ylabel("Peak 2 Cluster (um)")
+    ax.set_title("Global Best Dual-Peak Clusters")
+    ax.grid(True, alpha=0.3)
+    fig.colorbar(scatter, ax=ax, label="Best Representative Q_min_pair")
+    fig.tight_layout()
+    fig.savefig(output_dir / "global_peak_pair_cluster_scatter.png", dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+
+def _plot_global_representative_quality(global_representatives, output_dir):
+    fig, ax = plt.subplots(figsize=(7, 5))
+    scatter = ax.scatter(
+        global_representatives["q_min_pair"],
+        global_representatives["double_lorentz_mse"],
+        c=global_representatives["epoch"],
+        cmap="plasma",
+        alpha=0.85,
+        edgecolor="black",
+        linewidth=0.4,
+    )
+    ax.set_xlabel("Global Representative Q_min_pair")
+    ax.set_ylabel("Global Representative Double-Lorentzian MSE")
+    ax.set_title("Global Representative Quality")
+    ax.grid(True, alpha=0.3)
+    fig.colorbar(scatter, ax=ax, label="Source Epoch")
+    fig.tight_layout()
+    fig.savefig(output_dir / "global_representative_q_mse_scatter.png", dpi=300, bbox_inches="tight")
+    plt.close(fig)
+
+
+def save_plots(epoch_summary, cluster_summary, representatives, global_summary, global_representatives, output_dir):
     _plot_epoch_counts(epoch_summary, output_dir)
     _plot_peak_pair_scatter(cluster_summary, output_dir)
     _plot_epoch_cluster_heatmap(cluster_summary, output_dir)
     _plot_representative_quality(representatives, output_dir)
+    _plot_global_peak_pair_scatter(global_summary, output_dir)
+    _plot_global_representative_quality(global_representatives, output_dir)
 
 
 def copy_representative_samples(representatives, output_dir):
@@ -243,6 +351,19 @@ def copy_representative_samples(representatives, output_dir):
         if not sample_dir.exists():
             continue
         target_dir = rep_dir / f"epoch_{int(row.epoch):04d}" / f"peak_{row.peak_pair_cluster_key}" / sample_dir.name
+        if target_dir.exists():
+            shutil.rmtree(target_dir)
+        shutil.copytree(sample_dir, target_dir)
+
+
+def copy_global_representative_samples(global_representatives, output_dir):
+    rep_dir = output_dir / "global_representative_solutions"
+    rep_dir.mkdir(parents=True, exist_ok=True)
+    for row in global_representatives.itertuples(index=False):
+        sample_dir = Path(getattr(row, "sample_dir", ""))
+        if not sample_dir.exists():
+            continue
+        target_dir = rep_dir / f"peak_{row.peak_pair_cluster_key}" / f"epoch_{int(row.epoch):04d}_{sample_dir.name}"
         if target_dir.exists():
             shutil.rmtree(target_dir)
         shutil.copytree(sample_dir, target_dir)
@@ -262,15 +383,19 @@ def analyze_high_quality_peak_clusters(
     df = load_high_quality_solutions(high_quality_dir)
     clustered = assign_peak_clusters(df, round_width=round_width, cluster_width=cluster_width)
     epoch_summary, cluster_summary, representatives = build_peak_cluster_tables(clustered)
+    global_summary, global_representatives = build_global_peak_cluster_tables(clustered)
 
     clustered.to_csv(output_dir / "high_quality_solutions_with_peak_clusters.csv", index=False)
     epoch_summary.to_csv(output_dir / "epoch_peak_cluster_summary.csv", index=False)
     cluster_summary.to_csv(output_dir / "epoch_peak_pair_cluster_summary.csv", index=False)
     representatives.to_csv(output_dir / "representative_solutions.csv", index=False)
+    global_summary.to_csv(output_dir / "global_peak_pair_cluster_summary.csv", index=False)
+    global_representatives.to_csv(output_dir / "global_representative_solutions.csv", index=False)
 
-    save_plots(epoch_summary, cluster_summary, representatives, output_dir)
+    save_plots(epoch_summary, cluster_summary, representatives, global_summary, global_representatives, output_dir)
     if copy_representatives:
         copy_representative_samples(representatives, output_dir)
+        copy_global_representative_samples(global_representatives, output_dir)
 
     summary = {
         "input_high_quality_dir": str(high_quality_dir),
@@ -281,6 +406,8 @@ def analyze_high_quality_peak_clusters(
         "epochs_with_samples": int(epoch_summary["epoch"].nunique()),
         "total_epoch_peak_pair_clusters": int(len(cluster_summary)),
         "total_representative_solutions": int(len(representatives)),
+        "total_global_peak_pair_clusters": int(len(global_summary)),
+        "total_global_representative_solutions": int(len(global_representatives)),
     }
     with (output_dir / "peak_cluster_analysis_summary.json").open("w", encoding="utf-8") as handle:
         json.dump(summary, handle, indent=2, ensure_ascii=False)

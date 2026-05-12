@@ -69,6 +69,11 @@ requirements.txt
 - 推理输出：`generated_samples/best_samples_YYYYMMDD_HHMMSS/`
   - `target_spectrum.xlsx`
   - `best_samples_q.txt`、`pareto_samples_q.txt`：包含 `Q1/Q2/Q_min_pair`
+- 高质量解双峰簇分析输出：`high_quality_peak_cluster_analysis/`
+  - `representative_solutions.csv`：每个 epoch、每个双峰簇的代表解。
+  - `global_representative_solutions.csv`：跨所有 epoch、每个双峰簇的全局最优解。
+  - `global_peak_pair_cluster_summary.csv`：跨所有 epoch 的全局双峰簇统计。
+  - `global_peak_pair_cluster_scatter.png`、`global_representative_q_mse_scatter.png`：全局双峰簇与代表解质量图。
 
 ## 待确认
 - 默认 `config/inference_config.yaml` 中的 `model_path` 是否指向你当前机器上存在的模型文件，需要按本地实际结果目录确认。
