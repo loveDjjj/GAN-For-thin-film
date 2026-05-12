@@ -292,7 +292,7 @@ def parse_args():
     parser.add_argument("--high_quality_dir", required=True, help="Path to high_quality_solutions directory.")
     parser.add_argument("--output_dir", default=None, help="Output directory. Defaults to high_quality_dir/peak_cluster_analysis.")
     parser.add_argument("--round_width", type=float, default=0.1, help="Peak rounding width in um before clustering.")
-    parser.add_argument("--cluster_width", type=float, default=0.5, help="Peak cluster width in um.")
+    parser.add_argument("--cluster_width", type=float, default=0.2, help="Peak cluster width in um.")
     parser.add_argument("--copy_representatives", action="store_true", help="Copy representative sample folders.")
     return parser.parse_args()
 

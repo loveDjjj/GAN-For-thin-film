@@ -23,7 +23,7 @@ optics:
   lorentz_width: 0.02
   # 双峰目标: 两个中心分别在各自范围内采样，峰宽共用 lorentz_width
   lorentz_center_range_1: [3.2, 4.2]
-  lorentz_center_range_2: [4.6, 5.8]
+  lorentz_center_range_2: [4.4, 5.8]
   min_peak_spacing: 0.4
   max_peak_spacing: 2.5
   peak_height_ratio: 1.0
@@ -37,7 +37,7 @@ generator:
 
 training:
   epochs: 100
-  batch_size: 2048
+  batch_size: 1024
   save_interval: 1
   noise_level: 0.005
   lambda_gp: 3.0
